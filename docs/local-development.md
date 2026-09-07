@@ -36,6 +36,16 @@ RPC_URL=http://127.0.0.1:8545
 CHAIN_ID=31337
 ```
 
+The backend's `.env.example` lists the remaining configuration placeholders. Install and run each app from its own folder:
+
+```sh
+cd backend && pnpm install && pnpm run start:dev
+cd frontend && pnpm install && pnpm run dev
+```
+
+Use separate terminals for those two commands. The API defaults to port 3001 and Next.js to port 3000.
+`GET http://127.0.0.1:3001/health/live` checks that the API process is serving requests; it does not test database or queue readiness.
+
 These credentials and Anvil accounts are for local tests only. Stop services with `docker compose -f infrastructure/compose.yaml down`. Add `-v` only when you intend to delete the local database and queue state.
 
 Once the app flows are implemented, run two-user send, claim/refund and stream journeys against this stack, including a backend/worker restart and a repeated submission. The local run proves app behavior; the target-network sponsorship and deployment gates in the implementation plan remain separate.
