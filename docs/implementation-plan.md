@@ -8,6 +8,8 @@ Based on `TEA.md` v1.0 and the user's instructions to build our own streaming co
 
 The repository has a Next.js frontend starter, a NestJS backend starter using Express, and Foundry Counter examples. There is no implemented payment flow. Preserve the three top-level applications and keep the existing Express adapter. Move the frontend's starter `app/` into `src/app/` before feature development. Read the installed Next.js guides required by `frontend/AGENTS.md` before editing frontend code.
 
+For local end-to-end checks, run Anvil at chain ID 31337 and Postgres/Redis through Docker Compose as described in `docs/local-development.md`. Exercise two app users against actual local transactions, then restart the API/worker and retry pending operations. These checks supplement, rather than replace, target-network account and sponsorship verification in Gates A and B.
+
 Deliver P0 on test funds: onboarding, sponsored direct sends, email claims/refunds, fully funded streams, private threads, Envio receipts, and mobile recovery. P1 remains disabled until all P0 gates pass. Mainnet is a separate reviewed release.
 
 `TEA.md` is currently ignored by Git. Keep this plan's streaming decision tracked; decide whether to track the source specification during repository setup. Existing uncommitted files must be reviewed, not swept into a blanket commit.
