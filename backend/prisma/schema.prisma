@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String     @id @default(uuid()) @db.Uuid
+  privyDid    String     @unique @db.VarChar(128)
+  displayName String?    @db.VarChar(100)
+  handle      String?    @unique @db.VarChar(20)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(6)
+  identities  Identity[]
+  accounts    Account[]
+
+  @@map("users")
+}
+
+model Identity {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @db.Uuid
+  kind                 String   @default("email") @db.VarChar(16)
+  encryptedValue       Bytes
+  lookupKey            String   @db.Char(64)
+  normalizationVersion Int      @default(1)
+  verifiedAt           DateTime @db.Timestamptz(6)
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([kind, lookupKey])
+  @@index([userId])
+  @@map("identities")
+}
+
+model Account {
+  id                String   @id @default(uuid()) @db.Uuid
+  userId            String   @db.Uuid
+  chainId           Int
+  accountType       String   @default("privy_embedded") @db.VarChar(32)
+  settlementAddress String   @db.VarChar(42)
+  signerReference   String?  @db.VarChar(128)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  user              User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, chainId])
+  @@unique([chainId, settlementAddress])
+  @@map("accounts")
+}

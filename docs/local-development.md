@@ -36,10 +36,20 @@ RPC_URL=http://127.0.0.1:8545
 CHAIN_ID=31337
 ```
 
-The backend's `.env.example` lists the remaining configuration placeholders. Install and run each app from its own folder:
+The backend's `.env.example` lists the remaining configuration placeholders. Install each app in its own folder. Before starting the backend against a fresh database, generate its Prisma client and apply migrations:
 
 ```sh
-cd backend && pnpm install && pnpm run start:dev
+cd backend
+pnpm install
+DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea pnpm db:generate
+DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea pnpm db:migrate
+DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea pnpm test:db
+```
+
+Run the apps in separate terminals:
+
+```sh
+cd backend && pnpm run start:dev
 cd frontend && pnpm install && pnpm run dev
 ```
 
