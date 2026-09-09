@@ -1,12 +1,13 @@
 import {
   ConflictException,
+  BadRequestException,
   Injectable,
   OnModuleDestroy,
   ServiceUnavailableException,
   UnprocessableEntityException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import type { LinkedAccount, User } from '@privy-io/node';
 import {
   encryptIdentity,
@@ -166,5 +167,39 @@ export class SessionService implements OnModuleDestroy {
         account: { chainId, address },
       };
     });
+  }
+
+  async reserveHandle(token: string | undefined, value: unknown) {
+    if (!token) throw new UnauthorizedException('Identity token required');
+    if (
+      typeof value !== 'string' ||
+      !/^[a-z0-9_]{3,20}$/.test(value) ||
+      ['tea', 'admin', 'support'].includes(value)
+    ) {
+      throw new BadRequestException('Invalid handle');
+    }
+    const user = await this.sync(token);
+    try {
+      await this.db.user.updateMany({
+        where: { id: user.id, handle: null },
+        data: { handle: value },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Handle is taken');
+      }
+      throw error;
+    }
+    const current = await this.db.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { handle: true },
+    });
+    if (current.handle !== value) {
+      throw new ConflictException('Handle cannot be changed');
+    }
+    return { handle: value };
   }
 }
