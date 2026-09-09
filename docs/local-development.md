@@ -57,6 +57,8 @@ cd backend && pnpm run start:dev
 cd frontend && pnpm install && pnpm run dev
 ```
 
+Set `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_API_ORIGIN` in `frontend/.env.local` (copy `frontend/.env.example` first). The Privy app ID is public; keep `PRIVY_APP_SECRET` only in the backend environment. The API allows the origin in `APP_ORIGIN` for browser requests. Open the frontend at that exact origin, such as `http://127.0.0.1:3000` for the local example.
+
 Use separate terminals for those two commands. The API defaults to port 3001 and Next.js to port 3000.
 `GET http://127.0.0.1:3001/health/live` checks that the API process is serving requests; it does not test database or queue readiness.
 
