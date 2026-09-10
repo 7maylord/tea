@@ -8,13 +8,15 @@ datasource db {
 }
 
 model User {
-  id          String     @id @default(uuid()) @db.Uuid
-  privyDid    String     @unique @db.VarChar(128)
-  displayName String?    @db.VarChar(100)
-  handle      String?    @unique @db.VarChar(20)
-  createdAt   DateTime   @default(now()) @db.Timestamptz(6)
-  identities  Identity[]
-  accounts    Account[]
+  id               String          @id @default(uuid()) @db.Uuid
+  privyDid         String          @unique @db.VarChar(128)
+  displayName      String?         @db.VarChar(100)
+  handle           String?         @unique @db.VarChar(20)
+  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
+  identities       Identity[]
+  accounts         Account[]
+  outgoingPayments PaymentIntent[] @relation("OutgoingPayments")
+  incomingPayments PaymentIntent[] @relation("IncomingPayments")
 
   @@map("users")
 }
@@ -47,4 +49,28 @@ model Account {
   @@unique([userId, chainId])
   @@unique([chainId, settlementAddress])
   @@map("accounts")
+}
+
+model PaymentIntent {
+  id                     String   @id @default(uuid()) @db.Uuid
+  payerId                String   @db.Uuid
+  recipientUserId        String?  @db.Uuid
+  chainId                Int
+  tokenAddress           String   @db.VarChar(42)
+  payerAddress           String   @db.VarChar(42)
+  recipientAddress       String   @db.VarChar(42)
+  amountUnits            Decimal  @db.Decimal(78, 0)
+  kind                   String   @db.VarChar(16)
+  state                  String   @db.VarChar(32)
+  idempotencyKey         String   @db.VarChar(128)
+  requestHash            String   @db.Char(64)
+  authorizationExpiresAt DateTime @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @db.Timestamptz(6)
+  payer                  User     @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
+  recipient              User?    @relation("IncomingPayments", fields: [recipientUserId], references: [id], onDelete: Restrict)
+
+  @@unique([payerId, idempotencyKey])
+  @@index([payerId, state, authorizationExpiresAt])
+  @@map("payment_intents")
 }
