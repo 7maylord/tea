@@ -1,6 +1,7 @@
 import {
   ConflictException,
   BadRequestException,
+  GoneException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -388,5 +389,46 @@ export class SessionService implements OnModuleDestroy {
       reference,
       expiresAt,
     };
+  }
+
+  async recipientSnapshot(
+    reference: string,
+    requesterId: string,
+    chainId: number,
+  ) {
+    if (!/^[A-Za-z0-9_-]{43}$/.test(reference)) {
+      throw new BadRequestException('Invalid recipient reference');
+    }
+    const key = `tea:recipient:${createHash('sha256').update(reference).digest('hex')}`;
+    let raw: string | null;
+    try {
+      raw = await (await this.cache()).get(key);
+    } catch {
+      throw new ServiceUnavailableException('Recipient lookup unavailable');
+    }
+    if (!raw) throw new GoneException('Recipient reference expired');
+    let snapshot: unknown;
+    try {
+      snapshot = JSON.parse(raw) as unknown;
+    } catch {
+      throw new ServiceUnavailableException('Recipient lookup unavailable');
+    }
+    if (!snapshot || typeof snapshot !== 'object') {
+      throw new ServiceUnavailableException('Recipient lookup unavailable');
+    }
+    const item = snapshot as Record<string, unknown>;
+    if (
+      item.requesterId !== requesterId ||
+      item.chainId !== chainId ||
+      typeof item.userId !== 'string' ||
+      typeof item.destination !== 'string' ||
+      !/^0x[0-9a-f]{40}$/.test(item.destination) ||
+      typeof item.expiresAt !== 'string' ||
+      !Number.isFinite(Date.parse(item.expiresAt)) ||
+      Date.parse(item.expiresAt) <= Date.now()
+    ) {
+      throw new GoneException('Recipient reference expired');
+    }
+    return { userId: item.userId, destination: item.destination };
   }
 }

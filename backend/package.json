@@ -24,7 +24,8 @@
     "test:db": "node test/identity-db.check.cjs",
     "test:identity": "jest --config ./test/jest-e2e.json --runInBand --testRegex identity.integration-spec.ts$",
     "test:resolve": "jest --config ./test/jest-e2e.json --runInBand --testRegex recipient.integration-spec.ts$",
-    "test:funds": "jest --config ./test/jest-e2e.json --runInBand --testRegex funds.integration-spec.ts$"
+    "test:funds": "jest --config ./test/jest-e2e.json --runInBand --testRegex funds.integration-spec.ts$",
+    "test:payments": "jest --config ./test/jest-e2e.json --runInBand --testRegex payments.integration-spec.ts$"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

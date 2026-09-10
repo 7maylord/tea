@@ -45,6 +45,10 @@ export class FundsService {
     if (!identityToken)
       throw new UnauthorizedException('Identity token required');
     const user = await this.sessions.sync(identityToken);
+    return this.readBalance(user.account);
+  }
+
+  async readBalance(account: { chainId: number; address: string }) {
     const { rpcUrl, token, chainId } = this.config();
     const client = createPublicClient({
       transport: http(rpcUrl, { timeout: 5000 }),
@@ -52,7 +56,7 @@ export class FundsService {
     try {
       if (
         (await client.getChainId()) !== chainId ||
-        user.account.chainId !== chainId
+        account.chainId !== chainId
       ) {
         throw new Error('Wrong chain');
       }
@@ -62,7 +66,7 @@ export class FundsService {
           address: token,
           abi: erc20Abi,
           functionName: 'balanceOf',
-          args: [user.account.address as Address],
+          args: [account.address as Address],
           blockNumber,
         }),
         client.readContract({

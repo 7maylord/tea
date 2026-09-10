@@ -139,6 +139,16 @@ describe('recipient resolution (Postgres and Redis)', () => {
       chainId: 31337,
     });
     expect(await redis.ttl(key)).toBeGreaterThan(0);
+    const service = app.get(SessionService);
+    await expect(
+      service.recipientSnapshot(body.reference, snapshot.requesterId, 31337),
+    ).resolves.toMatchObject({ destination: targetAddress });
+    await expect(
+      service.recipientSnapshot(body.reference, snapshot.requesterId, 1),
+    ).rejects.toMatchObject({ status: 410 });
+    await expect(
+      service.recipientSnapshot(body.reference, randomUUID(), 31337),
+    ).rejects.toMatchObject({ status: 410 });
 
     const byEmail = await request(app.getHttpServer())
       .post('/v1/resolve')

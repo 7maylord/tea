@@ -1,6 +1,6 @@
 # TEA implementation plan
 
-Status: in progress. TeaStream passes local Foundry tests. Identity storage, session sync, handle reservation and exact recipient lookup pass local tests with mocked Privy data. Gates A and B still require live integration verification.
+Status: in progress. TeaStream passes local Foundry tests. Identity storage, session sync, handle reservation, exact recipient lookup and direct intent preparation pass local tests with mocked Privy data. The direct-send submission path is not implemented. Gates A and B still require live integration verification.
 
 Based on `TEA.md` v1.0 and the user's instructions to build our own streaming contract, keep NestJS on Express, and install the frontend and backend separately. Those decisions supersede the Sablier requirements in sections 11, 13, 18, 20–23 and 25, the Fastify choice in section 11, and the root pnpm workspace in sections 11–12. All other P0 requirements remain in scope. Dates below are targets; the submission cutoff still needs official verification.
 
