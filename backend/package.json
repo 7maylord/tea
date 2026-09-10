@@ -23,7 +23,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:db": "node test/identity-db.check.cjs",
     "test:identity": "jest --config ./test/jest-e2e.json --runInBand --testRegex identity.integration-spec.ts$",
-    "test:resolve": "jest --config ./test/jest-e2e.json --runInBand --testRegex recipient.integration-spec.ts$"
+    "test:resolve": "jest --config ./test/jest-e2e.json --runInBand --testRegex recipient.integration-spec.ts$",
+    "test:funds": "jest --config ./test/jest-e2e.json --runInBand --testRegex funds.integration-spec.ts$"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -33,7 +34,8 @@
     "@privy-io/node": "0.34.0",
     "redis": "6.2.1",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "viem": "2.56.7"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

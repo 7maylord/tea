@@ -14,6 +14,20 @@ type Session = {
   handle: string | null;
   account: { chainId: number; address: string };
 };
+type Balance = {
+  symbol: string;
+  decimals: number;
+  balanceUnits: string;
+  blockNumber: string;
+};
+
+function formatAmount(units: string, decimals: number) {
+  const value = BigInt(units);
+  const base = BigInt(10) ** BigInt(decimals);
+  const whole = (value / base).toString();
+  const fraction = (value % base).toString().padStart(decimals, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
+}
 
 const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900';
 
@@ -27,6 +41,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
+  const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
+  const [balanceVersion, setBalanceVersion] = useState(0);
+  const [notice, setNotice] = useState('');
   const did = user?.id;
   const passkeysAvailable = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
   const hasWallet = user?.linkedAccounts.some(
@@ -34,6 +51,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       (account.walletClientType === 'privy' || account.walletClientType === 'privy-v2'),
   );
   const hasPasskey = user?.linkedAccounts.some((account) => account.type === 'passkey');
+  const session = active && active.did === did ? active.session : null;
+  const visibleBalance = balance && balance.ownerId === session?.id ? balance.data : null;
 
   useEffect(() => {
     if (!ready || !authenticated || !did || !identityToken || !hasWallet) return;
@@ -53,6 +72,25 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       });
     return () => controller.abort();
   }, [apiOrigin, authenticated, did, hasWallet, identityToken, ready, retry]);
+
+  useEffect(() => {
+    if (!session?.handle || !identityToken) return;
+    const controller = new AbortController();
+    void fetch(`${apiOrigin}/v1/balance`, {
+      headers: { 'privy-id-token': identityToken },
+      cache: 'no-store',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Balance unavailable');
+        return (await response.json()) as Balance;
+      })
+      .then((data) => setBalance({ ownerId: session.id, data }))
+      .catch(() => {
+        if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
+      });
+    return () => controller.abort();
+  }, [apiOrigin, balanceVersion, identityToken, session?.handle, session?.id]);
 
   async function finishWallet() {
     setBusy(true);
@@ -74,6 +112,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       setActive(null);
       setHandle('');
       setError('');
+      setBalance(null);
+      setNotice('');
     } catch {
       setError('Could not sign out. Try again.');
     } finally {
@@ -112,7 +152,28 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     }
   }
 
-  const session = active && active.did === did ? active.session : null;
+  async function getTestFunds() {
+    if (!session || session.account.chainId !== 31337) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const token = await getIdentityToken();
+      if (!token) throw new Error('Your session expired. Sign in again.');
+      const response = await fetch(`${apiOrigin}/v1/local/faucet`, {
+        method: 'POST',
+        headers: { 'privy-id-token': token },
+      });
+      if (!response.ok) throw new Error('Could not request test funds. Try again.');
+      setNotice('Test funds submitted. Refresh your balance to confirm.');
+      setBalanceVersion((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not request test funds.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const address = session?.account.address;
 
   return (
@@ -163,6 +224,13 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
             <h1 className="text-4xl font-semibold tracking-tight">Hello, @{session.handle}.</h1>
             <p className="mt-4 text-stone-600">Your TEA account is ready to receive test funds.</p>
+            <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
+              <p className="text-sm text-stone-300">Onchain balance</p>
+              <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
+              {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
+              <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-10 rounded-xl border border-stone-500 px-4 text-sm font-medium">Refresh balance</button>
+            </div>
+            {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
             <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5">
               <p className="text-sm text-stone-500">Settlement wallet</p>
               <p className="mt-2 font-mono text-sm text-stone-800" title={address}>{address?.slice(0, 8)}…{address?.slice(-6)}</p>
@@ -171,6 +239,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             {!hasPasskey && passkeysAvailable && <button type="button" onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900">Add a passkey for easier sign-in</button>}
           </>
         )}
+        {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
       <footer className="text-sm text-stone-500">Test funds only · Email recovery stays available</footer>

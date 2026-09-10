@@ -20,6 +20,7 @@ forge script script/LocalDeploy.s.sol:LocalDeployScript --rpc-url http://127.0.0
 ```
 
 The script prints the token and stream addresses. Use its faucet only on Anvil; the contract rejects deployment on any other chain ID.
+Set `SETTLEMENT_TOKEN` in `backend/.env` to the printed token address. Set `TEA_STREAM_ADDRESS` to the printed stream address for later stream checks.
 
 Run the chain lifecycle check with those addresses:
 
@@ -50,17 +51,28 @@ For identity sync, enable identity tokens in the Privy app, set `PRIVY_APP_ID` a
 
 `POST /v1/me/handle` reserves one immutable handle. `POST /v1/resolve` accepts `{ "kind": "handle" | "email", "value": "..." }` with the same identity-token header and requires `REDIS_URL`. It returns an expiring recipient reference for a current verified account, or `unregistered` for an email with no verified TEA account. Run `pnpm test:resolve` from `backend/` with both local `DATABASE_URL` and `REDIS_URL` set to exercise its Postgres and Redis behavior. Payment-intent consumption of the reference is a later checkpoint.
 
-Run the apps in separate terminals:
+Create `backend/.env` once from `backend/.env.example`, then fill in the Privy credentials, secrets and deployed addresses. Run the backend from the repository root; Nest does not load that file automatically:
 
 ```sh
-cd backend && pnpm run start:dev
-cd frontend && pnpm install && pnpm run dev
+cd backend
+set -a; . ./.env; set +a
+pnpm run start:dev
+```
+
+Run the frontend in another terminal, also from the repository root:
+
+```sh
+cd frontend
+pnpm install
+pnpm run dev
 ```
 
 Set `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_API_ORIGIN` in `frontend/.env.local` (copy `frontend/.env.example` first). The Privy app ID is public; keep `PRIVY_APP_SECRET` only in the backend environment. The API allows the origin in `APP_ORIGIN` for browser requests. Open the frontend at that exact origin, such as `http://127.0.0.1:3000` for the local example.
 
-Use separate terminals for those two commands. The API defaults to port 3001 and Next.js to port 3000.
+The API defaults to port 3001 and Next.js to port 3000.
 `GET http://127.0.0.1:3001/health/live` checks that the API process is serving requests; it does not test database or queue readiness.
+
+After onboarding and claiming a handle, Home reads the token balance at a specific Anvil block. **Get 20 test USD** submits a local mint to the signed-in wallet; refresh the balance to see it after confirmation. The API ignores client-supplied recipients and amounts. The faucet is available only with `APP_ENV=local`, chain ID 31337, a loopback Anvil RPC and the local-only token. From `backend/`, run `RPC_URL=http://127.0.0.1:8545 SETTLEMENT_TOKEN=<token-address> pnpm test:funds` to check a real mint and balance read; this test substitutes a verified session because live Privy credentials are still required for browser onboarding.
 
 These credentials and Anvil accounts are for local tests only. Stop services with `docker compose -f infrastructure/compose.yaml down`. Add `-v` only when you intend to delete the local database and queue state.
 
