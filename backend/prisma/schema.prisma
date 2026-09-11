@@ -52,25 +52,47 @@ model Account {
 }
 
 model PaymentIntent {
-  id                     String   @id @default(uuid()) @db.Uuid
-  payerId                String   @db.Uuid
-  recipientUserId        String?  @db.Uuid
+  id                     String               @id @default(uuid()) @db.Uuid
+  payerId                String               @db.Uuid
+  recipientUserId        String?              @db.Uuid
   chainId                Int
-  tokenAddress           String   @db.VarChar(42)
-  payerAddress           String   @db.VarChar(42)
-  recipientAddress       String   @db.VarChar(42)
-  amountUnits            Decimal  @db.Decimal(78, 0)
-  kind                   String   @db.VarChar(16)
-  state                  String   @db.VarChar(32)
-  idempotencyKey         String   @db.VarChar(128)
-  requestHash            String   @db.Char(64)
-  authorizationExpiresAt DateTime @db.Timestamptz(6)
-  createdAt              DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt              DateTime @updatedAt @db.Timestamptz(6)
-  payer                  User     @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
-  recipient              User?    @relation("IncomingPayments", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  tokenAddress           String               @db.VarChar(42)
+  payerAddress           String               @db.VarChar(42)
+  recipientAddress       String               @db.VarChar(42)
+  amountUnits            Decimal              @db.Decimal(78, 0)
+  kind                   String               @db.VarChar(16)
+  state                  String               @db.VarChar(32)
+  idempotencyKey         String               @db.VarChar(128)
+  requestHash            String               @db.Char(64)
+  authorizationExpiresAt DateTime             @db.Timestamptz(6)
+  createdAt              DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime             @updatedAt @db.Timestamptz(6)
+  payer                  User                 @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
+  recipient              User?                @relation("IncomingPayments", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  attempts               TransactionAttempt[]
 
   @@unique([payerId, idempotencyKey])
   @@index([payerId, state, authorizationExpiresAt])
   @@map("payment_intents")
+}
+
+model TransactionAttempt {
+  id             String        @id @default(uuid()) @db.Uuid
+  intentId       String        @db.Uuid
+  operationIndex Int
+  chainId        Int
+  txHash         String        @db.VarChar(66)
+  state          String        @db.VarChar(32)
+  idempotencyKey String        @db.VarChar(128)
+  requestHash    String        @db.Char(64)
+  submittedAt    DateTime      @default(now()) @db.Timestamptz(6)
+  confirmedAt    DateTime?     @db.Timestamptz(6)
+  blockNumber    BigInt?       @db.BigInt
+  blockHash      String?       @db.VarChar(66)
+  intent         PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  @@unique([chainId, txHash])
+  @@unique([intentId, idempotencyKey])
+  @@index([intentId, operationIndex])
+  @@map("transaction_attempts")
 }
