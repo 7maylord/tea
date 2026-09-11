@@ -8,17 +8,22 @@ import {
   decodeFunctionData,
   erc20Abi,
   http,
+  parseEther,
   parseAbi,
   type Address,
   type Hex,
 } from 'viem';
 import { foundry } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { SessionService } from '../src/identity/session.service';
 
-const payerAddress = `0x${randomBytes(20).toString('hex')}`;
+const payerAccount = privateKeyToAccount(
+  `0x${randomBytes(32).toString('hex')}`,
+);
+const payerAddress = payerAccount.address.toLowerCase();
 const recipientAddress = `0x${randomBytes(20).toString('hex')}`;
 const reference = randomBytes(32).toString('base64url');
 
@@ -27,6 +32,8 @@ describe('direct payment intents (Postgres and Anvil)', () => {
   const db = new PrismaClient();
   let payerId: string;
   let recipientId: string;
+  let mintHash: Hex;
+  let oldTransferHash: Hex;
 
   beforeAll(async () => {
     process.env.CHAIN_ID = '31337';
@@ -73,20 +80,40 @@ describe('direct payment intents (Postgres and Anvil)', () => {
       address: process.env.SETTLEMENT_TOKEN as Address,
       abi: parseAbi(['function mint(address recipient, uint256 amount)']),
       functionName: 'mint',
-      args: [payerAddress, 20_000_000n],
+      args: [payerAddress, 21_000_000n],
     });
     const client = createPublicClient({ transport: http(process.env.RPC_URL) });
     await client.waitForTransactionReceipt({ hash });
+    mintHash = hash;
+    const gasHash = await wallet.sendTransaction({
+      account: sender,
+      to: payerAccount.address,
+      value: parseEther('1'),
+    });
+    await client.waitForTransactionReceipt({ hash: gasHash });
+    const senderWallet = createWalletClient({
+      account: payerAccount,
+      chain: foundry,
+      transport: http(process.env.RPC_URL),
+    });
+    oldTransferHash = await senderWallet.writeContract({
+      address: process.env.SETTLEMENT_TOKEN as Address,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [recipientAddress, 1_000_000n],
+    });
+    await client.waitForTransactionReceipt({ hash: oldTransferHash });
   });
 
   afterAll(async () => {
+    await db.transactionAttempt.deleteMany({ where: { intent: { payerId } } });
     await db.paymentIntent.deleteMany({ where: { payerId } });
     await db.user.deleteMany({ where: { id: { in: [payerId, recipientId] } } });
     await db.$disconnect();
     await app.close();
   });
 
-  it('reserves once, replays the same intent and rejects overspending', async () => {
+  it('reserves once, recovers retries, and verifies the actual transfer', async () => {
     const body = { recipientReference: reference, amountUnits: '15000000' };
     await request(app.getHttpServer())
       .post('/v1/payments')
@@ -161,5 +188,89 @@ describe('direct payment intents (Postgres and Anvil)', () => {
       (doubleTapTwo.body as { id: string }).id,
     );
     expect(await db.paymentIntent.count({ where: { payerId } })).toBe(2);
+
+    const uncertainId = (doubleTapOne.body as { id: string }).id;
+    await request(app.getHttpServer())
+      .post(`/v1/payments/${uncertainId}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-old')
+      .send({ txHash: oldTransferHash })
+      .expect(409);
+    const uncertainHash = `0x${randomBytes(32).toString('hex')}`;
+    const uncertain = await request(app.getHttpServer())
+      .post(`/v1/payments/${uncertainId}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-unknown')
+      .send({ txHash: uncertainHash })
+      .expect(201);
+    expect((uncertain.body as { state: string }).state).toBe('RECONCILING');
+    const uncertainRecovered = await request(app.getHttpServer())
+      .get(`/v1/payments/${uncertainId}`)
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((uncertainRecovered.body as { state: string }).state).toBe(
+      'RECONCILING',
+    );
+
+    await request(app.getHttpServer())
+      .post(`/v1/payments/${intent.id}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-one')
+      .send({ txHash: mintHash })
+      .expect(409);
+    const senderWallet = createWalletClient({
+      account: payerAccount,
+      chain: foundry,
+      transport: http(process.env.RPC_URL),
+    });
+    const transferHash = await senderWallet.writeContract({
+      address: process.env.SETTLEMENT_TOKEN as Address,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [recipientAddress, 15_000_000n],
+    });
+    const registered = await request(app.getHttpServer())
+      .post(`/v1/payments/${intent.id}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-one')
+      .send({ txHash: transferHash })
+      .expect(201);
+    expect((registered.body as { state: string }).state).toBe('CONFIRMED');
+    await request(app.getHttpServer())
+      .post(`/v1/payments/${intent.id}/submission`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'submit-other')
+      .send({ txHash: transferHash })
+      .expect(404);
+    const submittedAgain = await request(app.getHttpServer())
+      .post(`/v1/payments/${intent.id}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-one')
+      .send({ txHash: transferHash })
+      .expect(201);
+    expect((submittedAgain.body as { state: string }).state).toBe('CONFIRMED');
+    await request(app.getHttpServer())
+      .post(`/v1/payments/${intent.id}/submission`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-one')
+      .send({ txHash: oldTransferHash })
+      .expect(409);
+    const recoveredTransfer = await request(app.getHttpServer())
+      .get(`/v1/payments/${intent.id}`)
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((recoveredTransfer.body as { state: string }).state).toBe(
+      'CONFIRMED',
+    );
+    expect(
+      await db.transactionAttempt.count({ where: { intentId: intent.id } }),
+    ).toBe(1);
+
+    await request(app.getHttpServer())
+      .post('/v1/payments')
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'payment-four')
+      .send({ ...body, amountUnits: '4000000' })
+      .expect(201);
   });
 });

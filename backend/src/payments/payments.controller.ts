@@ -21,4 +21,14 @@ export class PaymentsController {
   ) {
     return this.payments.get(token, id);
   }
+
+  @Post(':id/submission')
+  register(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.payments.register(token, id, key, body);
+  }
 }
