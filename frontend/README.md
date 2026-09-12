@@ -9,4 +9,4 @@ pnpm dev
 
 The app runs at <http://127.0.0.1:3000>. Build with `pnpm build` and check lint with `pnpm lint`. Backend dependencies are installed separately in `backend/`.
 
-The onboarding screen uses Privy email sign-in, creates an embedded EVM wallet, syncs its verified identity to the backend, and reserves a handle. Home reads the token balance at a specific block and offers local Anvil test funds on chain ID 31337. Payment screens and live sponsorship verification are still in progress; the browser journey has not been tested with real Privy credentials.
+The onboarding screen uses Privy email sign-in, creates an embedded EVM wallet, syncs its verified identity to the backend, and reserves a handle. Home reads the token balance at a specific block and offers local Anvil test funds on chain ID 31337. The mobile shell has Home, Activity and Profile navigation; Activity explicitly says history is not available yet. Payment screens and live sponsorship verification are still in progress; the browser journey has not been tested with real Privy credentials.

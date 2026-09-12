@@ -44,6 +44,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
   const [balanceVersion, setBalanceVersion] = useState(0);
   const [notice, setNotice] = useState('');
+  const [view, setView] = useState<'home' | 'activity' | 'profile'>('home');
   const did = user?.id;
   const passkeysAvailable = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
   const hasWallet = user?.linkedAccounts.some(
@@ -74,7 +75,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   }, [apiOrigin, authenticated, did, hasWallet, identityToken, ready, retry]);
 
   useEffect(() => {
-    if (!session?.handle || !identityToken) return;
+    if (view !== 'home' || !session?.handle || !identityToken) return;
     const controller = new AbortController();
     void fetch(`${apiOrigin}/v1/balance`, {
       headers: { 'privy-id-token': identityToken },
@@ -90,7 +91,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, balanceVersion, identityToken, session?.handle, session?.id]);
+  }, [apiOrigin, balanceVersion, identityToken, session?.handle, session?.id, view]);
 
   async function finishWallet() {
     setBusy(true);
@@ -114,6 +115,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       setError('');
       setBalance(null);
       setNotice('');
+      setView('home');
     } catch {
       setError('Could not sign out. Try again.');
     } finally {
@@ -180,7 +182,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between">
         <span className="text-3xl font-semibold tracking-tight">tea.</span>
-        {ready && authenticated && <button type="button" disabled={busy} onClick={() => void signOut()} className="rounded-full px-3 py-2 text-sm font-medium text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>}
+        {ready && authenticated && !session?.handle && <button type="button" disabled={busy} onClick={() => void signOut()} className="rounded-full px-3 py-2 text-sm font-medium text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>}
       </header>
 
       <section className="flex flex-1 flex-col justify-center py-12">
@@ -221,28 +223,50 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
           </>
         ) : (
           <>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
-            <h1 className="text-4xl font-semibold tracking-tight">Hello, @{session.handle}.</h1>
-            <p className="mt-4 text-stone-600">Your TEA account is ready to receive test funds.</p>
-            <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
-              <p className="text-sm text-stone-300">Onchain balance</p>
-              <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
-              {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
-              <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-10 rounded-xl border border-stone-500 px-4 text-sm font-medium">Refresh balance</button>
-            </div>
-            {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
-            <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5">
-              <p className="text-sm text-stone-500">Settlement wallet</p>
-              <p className="mt-2 font-mono text-sm text-stone-800" title={address}>{address?.slice(0, 8)}…{address?.slice(-6)}</p>
-              <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
-            </div>
-            {!hasPasskey && passkeysAvailable && <button type="button" onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900">Add a passkey for easier sign-in</button>}
+            {view === 'home' && <>
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
+              <h1 className="text-4xl font-semibold tracking-tight">Hello, @{session.handle}.</h1>
+              <p className="mt-4 text-stone-600">Your TEA account is ready to receive test funds.</p>
+              <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
+                <p className="text-sm text-stone-300">Onchain balance</p>
+                <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
+                {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
+                <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
+              </div>
+              {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
+            </>}
+            {view === 'activity' && <>
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your money</p>
+              <h1 className="text-4xl font-semibold tracking-tight">Activity</h1>
+              <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6">
+                <p className="font-semibold">Activity is not available yet.</p>
+                <p className="mt-2 text-sm text-stone-600">This screen does not show your payment history yet.</p>
+              </div>
+            </>}
+            {view === 'profile' && <>
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
+              <h1 className="text-4xl font-semibold tracking-tight">Profile</h1>
+              <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5">
+                <p className="text-sm text-stone-500">TEA name</p>
+                <p className="mt-1 font-semibold">@{session.handle}</p>
+                <p className="mt-5 text-sm text-stone-500">Verified email</p>
+                <p className="mt-1 break-all font-medium">{user?.email?.address ?? 'Unavailable'}</p>
+                <p className="mt-5 text-sm text-stone-500">Settlement wallet</p>
+                <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
+                <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
+              </div>
+              {!hasPasskey && passkeysAvailable && <button type="button" onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">Add a passkey for easier sign-in</button>}
+              <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
+            </>}
           </>
         )}
         {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
-      <footer className="text-sm text-stone-500">Test funds only · Email recovery stays available</footer>
+      <footer className="pb-3 text-sm text-stone-500">Test funds only · Email recovery stays available</footer>
+      {session?.handle && <nav aria-label="Main" className="sticky bottom-0 -mx-5 grid grid-cols-3 gap-2 border-t border-stone-200 bg-[#f6f2e9] px-5 py-2">
+        {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}>{item}</button>)}
+      </nav>}
     </main>
   );
 }
