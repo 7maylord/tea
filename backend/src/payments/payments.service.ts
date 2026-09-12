@@ -32,6 +32,7 @@ import { SessionService } from '../identity/session.service';
 @Injectable()
 export class PaymentsService implements OnModuleDestroy {
   private readonly db = new PrismaClient();
+  private readonly activityPageSize = 20;
 
   constructor(
     private readonly sessions: SessionService,
@@ -40,6 +41,75 @@ export class PaymentsService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.db.$disconnect();
+  }
+
+  async activity(identityToken: string | undefined, cursor?: string) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (
+      cursor !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
+        cursor,
+      )
+    ) {
+      throw new BadRequestException('Invalid activity cursor');
+    }
+    const user = await this.sessions.sync(identityToken);
+    const where: Prisma.PaymentIntentWhereInput = {
+      OR: [
+        { payerId: user.id },
+        { recipientUserId: user.id, state: 'CONFIRMED' },
+      ],
+    };
+    if (cursor) {
+      const visible = await this.db.paymentIntent.findFirst({
+        where: { ...where, id: cursor },
+        select: { id: true },
+      });
+      if (!visible) throw new BadRequestException('Invalid activity cursor');
+    }
+    const rows = await this.db.paymentIntent.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: this.activityPageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: {
+        payer: { select: { handle: true } },
+        recipient: { select: { handle: true } },
+        attempts: {
+          orderBy: { submittedAt: 'desc' },
+          take: 1,
+          select: { txHash: true, blockNumber: true },
+        },
+      },
+    });
+    const items = rows.slice(0, this.activityPageSize).map((intent) => {
+      const outgoing = intent.payerId === user.id;
+      return {
+        id: intent.id,
+        direction: outgoing ? 'OUTGOING' : 'INCOMING',
+        state:
+          intent.state === 'AWAITING_AUTHORIZATION' &&
+          intent.authorizationExpiresAt.getTime() <= Date.now()
+            ? 'EXPIRED'
+            : intent.state,
+        counterpartyHandle: outgoing
+          ? (intent.recipient?.handle ?? null)
+          : intent.payer.handle,
+        amountUnits: intent.amountUnits.toString(),
+        token: intent.tokenAddress,
+        createdAt: intent.createdAt.toISOString(),
+        txHash: intent.attempts[0]?.txHash ?? null,
+        blockNumber: intent.attempts[0]?.blockNumber?.toString() ?? null,
+      };
+    });
+    return {
+      items,
+      nextCursor:
+        rows.length > this.activityPageSize
+          ? items[this.activityPageSize - 1].id
+          : null,
+    };
   }
 
   private present(intent: PaymentIntent, attempt?: TransactionAttempt | null) {

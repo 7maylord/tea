@@ -9,6 +9,7 @@ import { FundsController } from './funds/funds.controller';
 import { FundsService } from './funds/funds.service';
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
+import { ActivityController } from './payments/activity.controller';
 
 @Module({
   imports: [],
@@ -19,6 +20,7 @@ import { PaymentsService } from './payments/payments.service';
     ResolveController,
     FundsController,
     PaymentsController,
+    ActivityController,
   ],
   providers: [AppService, SessionService, FundsService, PaymentsService],
 })

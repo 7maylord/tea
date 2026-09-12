@@ -211,6 +211,13 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     expect((uncertainRecovered.body as { state: string }).state).toBe(
       'RECONCILING',
     );
+    const incomingBeforeConfirmation = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect(
+      (incomingBeforeConfirmation.body as { items: unknown[] }).items,
+    ).toEqual([]);
 
     await request(app.getHttpServer())
       .post(`/v1/payments/${intent.id}/submission`)
@@ -266,11 +273,65 @@ describe('direct payment intents (Postgres and Anvil)', () => {
       await db.transactionAttempt.count({ where: { intentId: intent.id } }),
     ).toBe(1);
 
-    await request(app.getHttpServer())
+    const fourth = await request(app.getHttpServer())
       .post('/v1/payments')
       .set('privy-id-token', 'payer')
       .set('Idempotency-Key', 'payment-four')
       .send({ ...body, amountUnits: '4000000' })
       .expect(201);
+
+    await request(app.getHttpServer()).get('/v1/activity').expect(401);
+    const outgoing = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    const outgoingItems = (
+      outgoing.body as {
+        items: { id: string; state: string; direction: string }[];
+        nextCursor: string | null;
+      }
+    ).items;
+    expect(outgoingItems).toHaveLength(3);
+    expect(outgoingItems.find((item) => item.id === intent.id)).toMatchObject({
+      state: 'CONFIRMED',
+      direction: 'OUTGOING',
+    });
+    const next = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .query({ cursor: outgoingItems[0].id })
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((next.body as { items: unknown[] }).items).toHaveLength(2);
+    const incoming = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect((incoming.body as { items: unknown[] }).items).toEqual([
+      expect.objectContaining({
+        id: intent.id,
+        direction: 'INCOMING',
+        state: 'CONFIRMED',
+        txHash: transferHash.toLowerCase(),
+      }),
+    ]);
+    await request(app.getHttpServer())
+      .get('/v1/activity')
+      .query({ cursor: uncertainId })
+      .set('privy-id-token', 'other')
+      .expect(400);
+
+    await db.paymentIntent.update({
+      where: { id: (fourth.body as { id: string }).id },
+      data: { authorizationExpiresAt: new Date(Date.now() - 1000) },
+    });
+    const expired = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect(
+      (expired.body as { items: { id: string; state: string }[] }).items.find(
+        (item) => item.id === (fourth.body as { id: string }).id,
+      )?.state,
+    ).toBe('EXPIRED');
   });
 });
