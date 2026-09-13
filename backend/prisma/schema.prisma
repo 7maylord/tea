@@ -17,6 +17,7 @@ model User {
   accounts         Account[]
   outgoingPayments PaymentIntent[] @relation("OutgoingPayments")
   incomingPayments PaymentIntent[] @relation("IncomingPayments")
+  outgoingClaims  Claim[]         @relation("OutgoingClaims")
 
   @@map("users")
 }
@@ -96,4 +97,50 @@ model TransactionAttempt {
   @@unique([intentId, idempotencyKey])
   @@index([intentId, operationIndex])
   @@map("transaction_attempts")
+}
+
+model Claim {
+  id                     String               @id @db.Char(66)
+  payerId                String               @db.Uuid
+  chainId                Int
+  escrowAddress          String               @db.VarChar(42)
+  tokenAddress           String               @db.VarChar(42)
+  payerAddress           String               @db.VarChar(42)
+  amountUnits            Decimal              @db.Decimal(78, 0)
+  identityLookupKey      String               @db.Char(64)
+  identityCommitment     String               @db.Char(66)
+  encryptedBindingSecret Bytes
+  inviteTokenHash        String               @unique @db.Char(64)
+  expiry                 DateTime?            @db.Timestamptz(6)
+  state                  String               @db.VarChar(32)
+  idempotencyKey         String               @db.VarChar(128)
+  requestHash            String               @db.Char(64)
+  depositTxHash          String?              @db.VarChar(66)
+  depositBlockNumber     BigInt?              @db.BigInt
+  depositBlockHash       String?              @db.VarChar(66)
+  createdAt              DateTime             @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime             @updatedAt @db.Timestamptz(6)
+  payer                  User                 @relation("OutgoingClaims", fields: [payerId], references: [id], onDelete: Restrict)
+  authorizations         ClaimAuthorization[]
+
+  @@unique([payerId, idempotencyKey])
+  @@unique([chainId, escrowAddress, depositTxHash])
+  @@index([state, expiry])
+  @@map("claims")
+}
+
+model ClaimAuthorization {
+  id               String   @id @default(uuid()) @db.Uuid
+  claimId          String   @db.Char(66)
+  nonce            Decimal  @db.Decimal(78, 0)
+  recipientAddress String   @db.VarChar(42)
+  deadline         DateTime @db.Timestamptz(6)
+  signerEpoch      BigInt   @db.BigInt
+  digest           String   @db.Char(66)
+  state            String   @db.VarChar(32)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  claim            Claim    @relation(fields: [claimId], references: [id], onDelete: Restrict)
+
+  @@index([claimId, state])
+  @@map("claim_authorizations")
 }
