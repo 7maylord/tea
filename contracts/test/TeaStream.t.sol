@@ -60,6 +60,23 @@ contract TestToken is IERC20 {
 }
 
 contract TeaStreamTest is Test {
+    event StreamCreated(
+        uint256 indexed streamId,
+        address indexed sender,
+        address indexed recipient,
+        uint256 deposit,
+        uint64 start,
+        uint64 end
+    );
+    event StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount);
+    event StreamCanceled(
+        uint256 indexed streamId,
+        address indexed sender,
+        address indexed recipient,
+        uint256 recipientEntitlement,
+        uint256 senderRefund
+    );
+
     TestToken token;
     TeaStream stream;
     address sender = address(0xA11CE);
@@ -77,6 +94,29 @@ contract TeaStreamTest is Test {
     function _create(uint256 amount, uint64 duration) private returns (uint256 id) {
         vm.prank(sender);
         id = stream.create(recipient, amount, duration);
+    }
+
+    function testLifecycleEventsCanReconstructParticipantBalances() public {
+        vm.expectEmit(true, true, true, true, address(stream));
+        emit StreamCreated(1, sender, recipient, 100, 1_000, 1_010);
+        uint256 id = _create(100, 10);
+
+        vm.warp(1_003);
+        vm.expectEmit(true, true, true, true, address(stream));
+        emit StreamWithdrawn(id, sender, recipient, 30);
+        vm.prank(recipient);
+        stream.withdraw(id);
+
+        vm.warp(1_006);
+        vm.expectEmit(true, true, true, true, address(stream));
+        emit StreamCanceled(id, sender, recipient, 60, 40);
+        vm.prank(sender);
+        stream.cancel(id);
+
+        vm.expectEmit(true, true, true, true, address(stream));
+        emit StreamWithdrawn(id, sender, recipient, 30);
+        vm.prank(recipient);
+        stream.withdraw(id);
     }
 
     function testPartialWithdrawCancelAndFinalDust() public {

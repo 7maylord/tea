@@ -42,9 +42,13 @@ contract TeaStream is ReentrancyGuard {
         uint64 start,
         uint64 end
     );
-    event StreamWithdrawn(uint256 indexed streamId, address indexed recipient, uint256 amount);
+    event StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount);
     event StreamCanceled(
-        uint256 indexed streamId, address indexed sender, uint256 recipientEntitlement, uint256 senderRefund
+        uint256 indexed streamId,
+        address indexed sender,
+        address indexed recipient,
+        uint256 recipientEntitlement,
+        uint256 senderRefund
     );
 
     constructor(IERC20 settlementToken) {
@@ -98,7 +102,7 @@ contract TeaStream is ReentrancyGuard {
         stream.withdrawn += amount;
         totalLiability -= amount;
         _send(stream.recipient, amount);
-        emit StreamWithdrawn(streamId, stream.recipient, amount);
+        emit StreamWithdrawn(streamId, stream.sender, stream.recipient, amount);
     }
 
     function cancel(uint256 streamId) external nonReentrant returns (uint256 refund) {
@@ -114,7 +118,7 @@ contract TeaStream is ReentrancyGuard {
         stream.canceled = true;
         totalLiability -= refund;
         if (refund != 0) _send(stream.sender, refund);
-        emit StreamCanceled(streamId, stream.sender, entitlement, refund);
+        emit StreamCanceled(streamId, stream.sender, stream.recipient, entitlement, refund);
     }
 
     function _send(address recipient, uint256 amount) private {
