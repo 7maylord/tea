@@ -31,4 +31,12 @@ export class ClaimsController {
   ) {
     return this.claims.registerDeposit(token, id, key, body);
   }
+
+  @Post('resolve-link')
+  resolveLink(
+    @Headers('privy-id-token') token: string | undefined,
+    @Body() body: unknown,
+  ) {
+    return this.claims.resolveLink(token, body);
+  }
 }

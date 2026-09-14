@@ -18,6 +18,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import {
   decryptIdentity,
+  encryptIdentity,
   readIdentityKey,
 } from '../src/identity/identity.crypto';
 import { SessionService } from '../src/identity/session.service';
@@ -28,6 +29,7 @@ const depositAbi = parseAbi([
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
 );
+const recipientAddress = `0x${randomBytes(20).toString('hex')}`;
 
 describe('claim preparation (Postgres and Anvil)', () => {
   let app: INestApplication<App>;
@@ -56,7 +58,10 @@ describe('claim preparation (Postgres and Anvil)', () => {
           Promise.resolve({
             id: token === 'other' ? otherId : payerId,
             handle: payer.handle,
-            account: { chainId: 31337, address: payerAddress },
+            account: {
+              chainId: 31337,
+              address: token === 'other' ? recipientAddress : payerAddress,
+            },
           }),
         ),
         recipientSnapshot: jest.fn(() =>
@@ -96,6 +101,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
   });
 
   afterAll(async () => {
+    await db.identity.deleteMany({ where: { userId: otherId } });
     await db.claimAuthorization.deleteMany({ where: { claim: { payerId } } });
     await db.claim.deleteMany({ where: { payerId } });
     await db.transactionAttempt.deleteMany({ where: { intent: { payerId } } });
@@ -250,5 +256,39 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(saved.depositTxHash).toBe(depositHash);
     expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(saved.expiry).not.toBeNull();
+
+    const encryptionKey = readIdentityKey(process.env.IDENTITY_ENCRYPTION_KEY);
+    const inviteToken = decryptIdentity(
+      saved.encryptedInviteToken,
+      encryptionKey,
+    );
+    await request(app.getHttpServer())
+      .post('/v1/claims/resolve-link')
+      .send({ token: inviteToken })
+      .expect(201, { requiresVerification: true });
+    await request(app.getHttpServer())
+      .post('/v1/claims/resolve-link')
+      .set('privy-id-token', 'payer')
+      .send({ token: inviteToken })
+      .expect(404);
+    await db.identity.create({
+      data: {
+        userId: otherId,
+        kind: 'email',
+        encryptedValue: Uint8Array.from(
+          encryptIdentity('Name+tag@example.com', encryptionKey),
+        ),
+        lookupKey: saved.identityLookupKey,
+        verifiedAt: new Date(),
+      },
+    });
+    const invitation = await request(app.getHttpServer())
+      .post('/v1/claims/resolve-link')
+      .set('privy-id-token', 'other')
+      .send({ token: inviteToken })
+      .expect(201);
+    expect((invitation.body as { id: string }).id).toBe(claim.id);
+    expect((invitation.body as { state: string }).state).toBe('OPEN');
+    expect(JSON.stringify(invitation.body)).not.toContain(inviteToken);
   });
 });

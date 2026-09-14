@@ -36,6 +36,7 @@ import { claimIdentityCommitment, newClaimBinding } from './claim.crypto';
 const escrowAbi = parseAbi([
   'function token() view returns (address)',
   'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
+  'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
   'event ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)',
 ]);
 
@@ -513,5 +514,87 @@ export class ClaimsService implements OnModuleDestroy {
       }
       throw error;
     }
+  }
+
+  async resolveLink(identityToken: string | undefined, input: unknown) {
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).join(',') !== 'token' ||
+      typeof (input as { token?: unknown }).token !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test((input as { token: string }).token)
+    ) {
+      throw new BadRequestException('Invalid invitation');
+    }
+    if (!identityToken) return { requiresVerification: true };
+    const recipient = await this.sessions.sync(identityToken);
+    const tokenHash = createHash('sha256')
+      .update((input as { token: string }).token)
+      .digest('hex');
+    const claim = await this.db.claim.findUnique({
+      where: { inviteTokenHash: tokenHash },
+      include: { payer: { select: { handle: true } } },
+    });
+    if (!claim) throw new NotFoundException('Invitation unavailable');
+    const matchingIdentity = await this.db.identity.findUnique({
+      where: {
+        kind_lookupKey: { kind: 'email', lookupKey: claim.identityLookupKey },
+      },
+      select: { userId: true },
+    });
+    if (
+      matchingIdentity?.userId !== recipient.id ||
+      recipient.account.chainId !== claim.chainId
+    ) {
+      throw new NotFoundException('Invitation unavailable');
+    }
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) throw new ServiceUnavailableException('RPC is not configured');
+    const client = createPublicClient({
+      transport: http(rpcUrl, { timeout: 5000 }),
+    });
+    let onchain: readonly [Address, bigint, bigint, Hex, number];
+    let timestamp: bigint;
+    try {
+      if ((await client.getChainId()) !== claim.chainId)
+        throw new Error('Wrong chain');
+      const block = await client.getBlock();
+      onchain = await client.readContract({
+        address: claim.escrowAddress as Address,
+        abi: escrowAbi,
+        functionName: 'claims',
+        args: [claim.id as Hex],
+        blockNumber: block.number,
+      });
+      timestamp = block.timestamp;
+    } catch {
+      throw new ServiceUnavailableException('Claim state is unavailable');
+    }
+    if (
+      onchain[0].toLowerCase() !== claim.payerAddress ||
+      onchain[1] !== BigInt(claim.amountUnits.toString()) ||
+      onchain[3] !== claim.identityCommitment ||
+      onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0) ||
+      onchain[4] < 1 ||
+      onchain[4] > 3
+    ) {
+      throw new NotFoundException('Invitation unavailable');
+    }
+    return {
+      id: claim.id,
+      payerHandle: claim.payer.handle,
+      amountUnits: claim.amountUnits.toString(),
+      token: claim.tokenAddress,
+      expiry: claim.expiry?.toISOString(),
+      state:
+        onchain[4] === 1
+          ? timestamp < onchain[2]
+            ? 'OPEN'
+            : 'REFUNDABLE'
+          : onchain[4] === 2
+            ? 'CLAIMED'
+            : 'REFUNDED',
+    };
   }
 }
