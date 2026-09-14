@@ -10,6 +10,8 @@ import { FundsService } from './funds/funds.service';
 import { PaymentsController } from './payments/payments.controller';
 import { PaymentsService } from './payments/payments.service';
 import { ActivityController } from './payments/activity.controller';
+import { ClaimsController } from './claims/claims.controller';
+import { ClaimsService } from './claims/claims.service';
 
 @Module({
   imports: [],
@@ -21,7 +23,14 @@ import { ActivityController } from './payments/activity.controller';
     FundsController,
     PaymentsController,
     ActivityController,
+    ClaimsController,
   ],
-  providers: [AppService, SessionService, FundsService, PaymentsService],
+  providers: [
+    AppService,
+    SessionService,
+    FundsService,
+    PaymentsService,
+    ClaimsService,
+  ],
 })
 export class AppModule {}

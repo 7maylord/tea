@@ -109,8 +109,12 @@ model Claim {
   amountUnits            Decimal              @db.Decimal(78, 0)
   identityLookupKey      String               @db.Char(64)
   identityCommitment     String               @db.Char(66)
+  encryptedRecipientEmail Bytes
   encryptedBindingSecret Bytes
   inviteTokenHash        String               @unique @db.Char(64)
+  encryptedInviteToken   Bytes
+  preparedAtBlock        BigInt               @db.BigInt
+  preparationExpiresAt   DateTime             @db.Timestamptz(6)
   expiry                 DateTime?            @db.Timestamptz(6)
   state                  String               @db.VarChar(32)
   idempotencyKey         String               @db.VarChar(128)

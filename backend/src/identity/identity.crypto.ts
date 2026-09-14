@@ -1,4 +1,9 @@
-import { createCipheriv, createHmac, randomBytes } from 'node:crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+} from 'node:crypto';
 import { domainToASCII } from 'node:url';
 
 export const NORMALIZATION_VERSION = 1;
@@ -34,6 +39,16 @@ export function encryptIdentity(value: string, key: Buffer): Buffer {
     cipher.final(),
   ]);
   return Buffer.concat([nonce, cipher.getAuthTag(), ciphertext]);
+}
+
+export function decryptIdentity(value: Uint8Array, key: Buffer): string {
+  const stored = Buffer.from(value);
+  const decipher = createDecipheriv('aes-256-gcm', key, stored.subarray(0, 12));
+  decipher.setAuthTag(stored.subarray(12, 28));
+  return Buffer.concat([
+    decipher.update(stored.subarray(28)),
+    decipher.final(),
+  ]).toString('utf8');
 }
 
 export function readIdentityKey(value: string | undefined): Buffer {

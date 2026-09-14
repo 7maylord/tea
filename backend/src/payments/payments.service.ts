@@ -326,7 +326,22 @@ export class PaymentsService implements OnModuleDestroy {
           },
           select: { amountUnits: true },
         });
-        const reserved = active.reduce(
+        const pendingClaims = await tx.claim.findMany({
+          where: {
+            payerId: payer.id,
+            chainId: balance.chainId,
+            tokenAddress,
+            OR: [
+              {
+                state: 'AWAITING_DEPOSIT',
+                preparationExpiresAt: { gt: new Date() },
+              },
+              { state: { in: ['SUBMITTED', 'RECONCILING'] } },
+            ],
+          },
+          select: { amountUnits: true },
+        });
+        const reserved = [...active, ...pendingClaims].reduce(
           (total, item) => total + BigInt(item.amountUnits.toString()),
           0n,
         );

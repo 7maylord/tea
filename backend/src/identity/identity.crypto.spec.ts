@@ -1,5 +1,6 @@
-import { createDecipheriv, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import {
+  decryptIdentity,
   encryptIdentity,
   identityKey,
   normalizeEmail,
@@ -21,17 +22,7 @@ describe('identity storage', () => {
 
     const stored = encryptIdentity(email, encryptionSecret);
     expect(stored.includes(Buffer.from(email))).toBe(false);
-    const decipher = createDecipheriv(
-      'aes-256-gcm',
-      encryptionSecret,
-      stored.subarray(0, 12),
-    );
-    decipher.setAuthTag(stored.subarray(12, 28));
-    const plaintext = Buffer.concat([
-      decipher.update(stored.subarray(28)),
-      decipher.final(),
-    ]);
-    expect(plaintext.toString()).toBe(email);
+    expect(decryptIdentity(stored, encryptionSecret)).toBe(email);
     expect(readIdentityKey(lookupSecret.toString('base64'))).toEqual(
       lookupSecret,
     );
