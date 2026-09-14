@@ -120,6 +120,8 @@ model Claim {
   idempotencyKey         String               @db.VarChar(128)
   requestHash            String               @db.Char(64)
   depositTxHash          String?              @db.VarChar(66)
+  depositSubmissionKey   String?              @db.VarChar(128)
+  depositSubmissionHash  String?              @db.Char(64)
   depositBlockNumber     BigInt?              @db.BigInt
   depositBlockHash       String?              @db.VarChar(66)
   createdAt              DateTime             @default(now()) @db.Timestamptz(6)

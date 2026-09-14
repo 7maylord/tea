@@ -21,4 +21,14 @@ export class ClaimsController {
   ) {
     return this.claims.get(token, id);
   }
+
+  @Post(':id/deposit')
+  registerDeposit(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.claims.registerDeposit(token, id, key, body);
+  }
 }

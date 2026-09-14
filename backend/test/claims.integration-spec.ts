@@ -12,6 +12,7 @@ import {
   type Address,
 } from 'viem';
 import { foundry } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
@@ -24,13 +25,16 @@ import { SessionService } from '../src/identity/session.service';
 const depositAbi = parseAbi([
   'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
 ]);
+const payerAccount = privateKeyToAccount(
+  `0x${randomBytes(32).toString('hex')}`,
+);
 
 describe('claim preparation (Postgres and Anvil)', () => {
   let app: INestApplication<App>;
   const db = new PrismaClient();
   let payerId: string;
   let otherId: string;
-  const payerAddress = `0x${randomBytes(20).toString('hex')}`;
+  const payerAddress = payerAccount.address.toLowerCase();
 
   beforeAll(async () => {
     process.env.CHAIN_ID = '31337';
@@ -81,6 +85,14 @@ describe('claim preparation (Postgres and Anvil)', () => {
     await createPublicClient({
       transport: http(process.env.RPC_URL),
     }).waitForTransactionReceipt({ hash });
+    const gasHash = await wallet.sendTransaction({
+      account: sender,
+      to: payerAccount.address,
+      value: 10n ** 18n,
+    });
+    await createPublicClient({
+      transport: http(process.env.RPC_URL),
+    }).waitForTransactionReceipt({ hash: gasHash });
   });
 
   afterAll(async () => {
@@ -187,5 +199,56 @@ describe('claim preparation (Postgres and Anvil)', () => {
         amountUnits: '6000000',
       })
       .expect(422);
+
+    const signer = createWalletClient({
+      account: payerAccount,
+      chain: foundry,
+      transport: http(process.env.RPC_URL),
+    });
+    const approvalHash = await signer.sendTransaction({
+      to: claim.plan.approve.to as Address,
+      data: claim.plan.approve.data,
+      value: 0n,
+    });
+    const client = createPublicClient({ transport: http(process.env.RPC_URL) });
+    await client.waitForTransactionReceipt({ hash: approvalHash });
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/deposit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'deposit-approval-only')
+      .send({ txHash: approvalHash })
+      .expect(409);
+    const depositHash = await signer.sendTransaction({
+      to: claim.plan.deposit.to as Address,
+      data: claim.plan.deposit.data,
+      value: 0n,
+    });
+    await client.waitForTransactionReceipt({ hash: depositHash });
+    const confirmed = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/deposit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'deposit-confirmed')
+      .send({ txHash: depositHash })
+      .expect(201);
+    expect((confirmed.body as { state: string }).state).toBe('OPEN');
+    expect((confirmed.body as { expiry: string }).expiry).toBeTruthy();
+    expect((confirmed.body as { plan: unknown }).plan).toBeNull();
+    const again = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/deposit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'deposit-confirmed')
+      .send({ txHash: depositHash })
+      .expect(201);
+    expect((again.body as { state: string }).state).toBe('OPEN');
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/deposit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'deposit-confirmed')
+      .send({ txHash: `0x${'22'.repeat(32)}` })
+      .expect(409);
+    const saved = await db.claim.findUniqueOrThrow({ where: { id: claim.id } });
+    expect(saved.depositTxHash).toBe(depositHash);
+    expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(saved.expiry).not.toBeNull();
   });
 });
