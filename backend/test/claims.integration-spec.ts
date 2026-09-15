@@ -16,6 +16,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import { processNextClaimInvite } from '../src/claims/invite.worker';
 import {
   claimAcceptanceDigest,
   claimAcceptanceTypedData,
@@ -119,6 +120,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
   afterAll(async () => {
     await db.identity.deleteMany({ where: { userId: otherId } });
     await db.claimAuthorization.deleteMany({ where: { claim: { payerId } } });
+    await db.outboxJob.deleteMany({ where: { claim: { payerId } } });
     await db.claim.deleteMany({ where: { payerId } });
     await db.transactionAttempt.deleteMany({ where: { intent: { payerId } } });
     await db.paymentIntent.deleteMany({ where: { payerId } });
@@ -240,6 +242,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .set('Idempotency-Key', 'deposit-approval-only')
       .send({ txHash: approvalHash })
       .expect(409);
+    expect(await db.outboxJob.count({ where: { claimId: claim.id } })).toBe(0);
     const depositHash = await signer.sendTransaction({
       to: claim.plan.deposit.to as Address,
       data: claim.plan.deposit.data,
@@ -272,6 +275,47 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(saved.depositTxHash).toBe(depositHash);
     expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(saved.expiry).not.toBeNull();
+    expect(await db.outboxJob.count({ where: { claimId: claim.id } })).toBe(1);
+
+    const originalFetch = global.fetch;
+    const fetchMock = jest
+      .spyOn(global, 'fetch')
+      .mockImplementation((input, init) =>
+        input === 'https://api.resend.com/emails'
+          ? Promise.resolve({ ok: true } as Response)
+          : originalFetch(input, init),
+      );
+    const previousEmailKey = process.env.EMAIL_PROVIDER_KEY;
+    const previousEmailFrom = process.env.EMAIL_FROM;
+    process.env.EMAIL_PROVIDER_KEY = 'test-only-key';
+    process.env.EMAIL_FROM = 'TEA <test@example.com>';
+    try {
+      expect(await processNextClaimInvite(db)).toBe(true);
+      expect(await processNextClaimInvite(db)).toBe(false);
+      const emailCalls = fetchMock.mock.calls.filter(
+        ([input]) => input === 'https://api.resend.com/emails',
+      );
+      expect(emailCalls).toHaveLength(1);
+      const payload = emailCalls[0][1]?.body;
+      if (typeof payload !== 'string') throw new Error('Missing email body');
+      const requestBody = JSON.parse(payload) as {
+        to: string[];
+        text: string;
+      };
+      expect(requestBody.to).toEqual(['Name+tag@example.com']);
+      expect(requestBody.text).toContain('/claim/');
+      expect(requestBody.text).not.toContain(saved.identityCommitment);
+      expect(
+        (await db.outboxJob.findFirstOrThrow({ where: { claimId: claim.id } }))
+          .state,
+      ).toBe('SENT');
+    } finally {
+      fetchMock.mockRestore();
+      if (previousEmailKey === undefined) delete process.env.EMAIL_PROVIDER_KEY;
+      else process.env.EMAIL_PROVIDER_KEY = previousEmailKey;
+      if (previousEmailFrom === undefined) delete process.env.EMAIL_FROM;
+      else process.env.EMAIL_FROM = previousEmailFrom;
+    }
 
     const signerEpoch = await client.readContract({
       address: saved.escrowAddress as Address,

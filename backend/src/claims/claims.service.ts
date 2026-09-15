@@ -431,16 +431,41 @@ export class ClaimsService implements OnModuleDestroy {
       (observed.blockHash ?? null) === claim.depositBlockHash &&
       (observed.expiry?.getTime() ?? null) === (claim.expiry?.getTime() ?? null)
     ) {
+      if (observed.state === 'OPEN') {
+        await this.db.outboxJob.createMany({
+          data: {
+            claimId: claim.id,
+            kind: 'CLAIM_INVITE',
+            dedupeKey: `claim-invite:${claim.id}`,
+            state: 'PENDING',
+          },
+          skipDuplicates: true,
+        });
+      }
       return claim;
     }
-    return this.db.claim.update({
-      where: { id: claim.id },
-      data: {
-        state: observed.state,
-        expiry: observed.expiry ?? null,
-        depositBlockNumber: observed.blockNumber ?? null,
-        depositBlockHash: observed.blockHash ?? null,
-      },
+    return this.db.$transaction(async (tx) => {
+      const updated = await tx.claim.update({
+        where: { id: claim.id },
+        data: {
+          state: observed.state,
+          expiry: observed.expiry ?? null,
+          depositBlockNumber: observed.blockNumber ?? null,
+          depositBlockHash: observed.blockHash ?? null,
+        },
+      });
+      if (observed.state === 'OPEN') {
+        await tx.outboxJob.createMany({
+          data: {
+            claimId: claim.id,
+            kind: 'CLAIM_INVITE',
+            dedupeKey: `claim-invite:${claim.id}`,
+            state: 'PENDING',
+          },
+          skipDuplicates: true,
+        });
+      }
+      return updated;
     });
   }
 
@@ -504,7 +529,7 @@ export class ClaimsService implements OnModuleDestroy {
         ) {
           throw new ConflictException('Claim deposit already submitted');
         }
-        return tx.claim.update({
+        const saved = await tx.claim.update({
           where: { id },
           data: {
             depositTxHash: hash,
@@ -516,6 +541,18 @@ export class ClaimsService implements OnModuleDestroy {
             depositBlockHash: observed.blockHash ?? null,
           },
         });
+        if (observed.state === 'OPEN') {
+          await tx.outboxJob.createMany({
+            data: {
+              claimId: id,
+              kind: 'CLAIM_INVITE',
+              dedupeKey: `claim-invite:${id}`,
+              state: 'PENDING',
+            },
+            skipDuplicates: true,
+          });
+        }
+        return saved;
       });
       return this.present(updated);
     } catch (error) {

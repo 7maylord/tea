@@ -12,15 +12,16 @@ Run Anvil in another terminal:
 anvil --host 127.0.0.1 --port 8545 --chain-id 31337
 ```
 
-Deploy the local-only faucet token and stream from `contracts/` using an unlocked Anvil account:
+Deploy the local-only faucet token, stream and claim escrow from `contracts/` using an unlocked Anvil account:
 
 ```sh
 ANVIL_SENDER=$(cast rpc eth_accounts --rpc-url http://127.0.0.1:8545 | jq -r '.[0]')
 forge script script/LocalDeploy.s.sol:LocalDeployScript --rpc-url http://127.0.0.1:8545 --sender "$ANVIL_SENDER" --unlocked --broadcast
 ```
 
-The script prints the token and stream addresses. Use its faucet only on Anvil; the contract rejects deployment on any other chain ID.
+The script prints the token, stream and escrow addresses. Use its faucet only on Anvil; the token rejects deployment on any other chain ID.
 Set `SETTLEMENT_TOKEN` in `backend/.env` to the printed token address. Set `TEA_STREAM_ADDRESS` to the printed stream address for later stream checks.
+Set `CLAIM_ESCROW_ADDRESS` to the printed escrow address. The local escrow's identity signer is Anvil account 0; set `CLAIM_IDENTITY_SIGNER_PRIVATE_KEY` to that **Anvil-only** test account's key for claim integration tests. Never use the Anvil key with real funds.
 
 Run the chain lifecycle check with those addresses:
 
@@ -51,7 +52,7 @@ Before using any settlement network, run `pnpm check:network` from `backend/` wi
 
 For identity sync, enable identity tokens in the Privy app, set `PRIVY_APP_ID` and `PRIVY_APP_SECRET`, and generate **two separate** 32-byte base64 secrets with `openssl rand -base64 32`. Set those as `IDENTITY_LOOKUP_HMAC_KEY` and `IDENTITY_ENCRYPTION_KEY`. `POST /v1/session/sync` accepts the Privy identity token in the `privy-id-token` header. It verifies the token, fetches current linked accounts from Privy, and refuses an unverified email or missing embedded EVM wallet. With Docker Postgres running, run `pnpm test:identity` from `backend/` with the local `DATABASE_URL` above; this exercises HTTP and database behavior using mocked Privy data. A live Privy test remains part of Gate A.
 
-The backend does not use `BUNDLER_URL`, `PAYMASTER_URL`, `EMAIL_PROVIDER_KEY`, `CLAIM_IDENTITY_SIGNER_REF` or `RELAYER_SIGNER_REF` yet. Privy's planned app-pays flow is configured in its dashboard, without separate bundler or paymaster URLs. Claim emails and signing/relaying still need implementation; choose an email provider and provision managed signer references when those features are built. Do not put raw private keys in signer reference fields.
+The backend does not use `BUNDLER_URL`, `PAYMASTER_URL`, `CLAIM_IDENTITY_SIGNER_REF` or `RELAYER_SIGNER_REF`. Privy's planned app-pays flow is configured in its dashboard, without separate bundler or paymaster URLs. Claim authorizations use a dedicated `CLAIM_IDENTITY_SIGNER_PRIVATE_KEY` injected into the backend process; it must match the escrow's configured signer. Keep it outside Git and use a dedicated test-funds signer. `EMAIL_PROVIDER_KEY` is a [Resend API key](https://resend.com/docs/api-reference/api-keys/create-api-key); `EMAIL_FROM` is an address on a [verified sending domain](https://resend.com/docs/dashboard/domains/introduction). The backend never exposes either value to the frontend. Claim relay and automatic refunds still need a dedicated relayer signer.
 
 `POST /v1/me/handle` reserves one immutable handle. `POST /v1/resolve` accepts `{ "kind": "handle" | "email", "value": "..." }` with the same identity-token header and requires `REDIS_URL`. It returns an expiring recipient reference for a current verified account, or `unregistered` for an email with no verified TEA account. Run `pnpm test:resolve` from `backend/` with both local `DATABASE_URL` and `REDIS_URL` set to exercise its Postgres and Redis behavior. Payment-intent consumption of the reference is a later checkpoint.
 
@@ -71,7 +72,7 @@ pnpm install
 pnpm run dev
 ```
 
-Set `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_API_ORIGIN` in `frontend/.env.local` (copy `frontend/.env.example` first). The Privy app ID is public; keep `PRIVY_APP_SECRET` only in the backend environment. The API allows the origin in `APP_ORIGIN` for browser requests. Open the frontend at that exact origin, such as `http://127.0.0.1:3000` for the local example.
+Set `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_API_ORIGIN` in `frontend/.env` (copy `frontend/.env.example` first). The Privy app ID is public; keep `PRIVY_APP_SECRET` only in the backend environment. The API allows the origin in `APP_ORIGIN` for browser requests. Open the frontend at that exact origin, such as `http://127.0.0.1:3000` for the local example.
 
 The API defaults to port 3001 and Next.js to port 3000.
 `GET http://127.0.0.1:3001/health/live` checks that the API process is serving requests; it does not test database or queue readiness.
@@ -80,6 +81,8 @@ After onboarding and claiming a handle, Home reads the token balance at a specif
 
 `POST /v1/payments` accepts `Idempotency-Key` plus `{ "recipientReference": "...", "amountUnits": "..." }` after exact recipient lookup. It stores one immutable direct-send intent and returns an ERC-20 transfer plan; it does **not** submit a transaction. `GET /v1/payments/:id` lets the payer recover that plan while its authorization window is open. From `backend/`, run `DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea RPC_URL=http://127.0.0.1:8545 SETTLEMENT_TOKEN=<token-address> pnpm test:payments` to check idempotency and reservations against Postgres and Anvil. The test substitutes verified sessions; live authorization, sponsorship and target-network verification remain open.
 After the wallet broadcasts a transfer, `POST /v1/payments/:id/submission` accepts `Idempotency-Key` and `{ "txHash": "0x..." }`. It verifies the sender, token, calldata, value, preparation block and ERC-20 transfer log before marking the intent confirmed. A hash the RPC cannot find is stored as `RECONCILING` and remains reserved; `GET /v1/payments/:id` checks it again. The local test covers an actual Anvil transfer, an older matching transfer, a wrong transaction, an unknown hash and a retry. Target-network signing and sponsorship remain unverified.
+
+`POST /v1/claims` accepts `Idempotency-Key` plus `{ "recipientEmail": "...", "amountUnits": "..." }`. It stores a salted identity commitment and encrypted invite data, then returns exact token approval and escrow deposit plans for the payer's wallet. `POST /v1/claims/:id/deposit` accepts a deposit transaction hash and confirms the exact call, escrow event and token transfer before opening the claim; an approval receipt cannot open it. Once open, the invite outbox worker may email the opaque link. Start it after `pnpm build` with `pnpm start:claim-worker`; it requires `EMAIL_PROVIDER_KEY`, `EMAIL_FROM`, and a frontend `APP_ORIGIN` reachable by the recipient. `POST /v1/claims/resolve-link` reveals details only to a Privy session with the matching verified email. `POST /v1/claims/:id/authorize` takes `{ "inviteToken": "..." }` plus an idempotency key and issues a five-minute EIP-712 authorization for that session's settlement wallet. From `backend/`, run `pnpm test:claims` with local `DATABASE_URL`, `RPC_URL`, `SETTLEMENT_TOKEN`, `CLAIM_ESCROW_ADDRESS`, identity keys and the local escrow signer key; it exercises the full deposit, link, dual-signature claim and mocked email flow on Anvil.
 
 These credentials and Anvil accounts are for local tests only. Stop services with `docker compose -f infrastructure/compose.yaml down`. Add `-v` only when you intend to delete the local database and queue state.
 

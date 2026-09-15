@@ -128,6 +128,7 @@ model Claim {
   updatedAt              DateTime             @updatedAt @db.Timestamptz(6)
   payer                  User                 @relation("OutgoingClaims", fields: [payerId], references: [id], onDelete: Restrict)
   authorizations         ClaimAuthorization[]
+  outboxJobs             OutboxJob[]
 
   @@unique([payerId, idempotencyKey])
   @@unique([chainId, escrowAddress, depositTxHash])
@@ -153,4 +154,21 @@ model ClaimAuthorization {
   @@index([claimId, state])
   @@unique([claimId, idempotencyKey])
   @@map("claim_authorizations")
+}
+
+model OutboxJob {
+  id            String    @id @default(uuid()) @db.Uuid
+  claimId       String    @db.Char(66)
+  kind          String    @db.VarChar(32)
+  dedupeKey     String    @unique @db.VarChar(128)
+  state         String    @db.VarChar(16)
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @db.Timestamptz(6)
+  leaseUntil    DateTime? @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(6)
+  claim         Claim     @relation(fields: [claimId], references: [id], onDelete: Restrict)
+
+  @@index([state, nextAttemptAt])
+  @@map("outbox_jobs")
 }
