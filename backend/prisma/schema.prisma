@@ -143,10 +143,14 @@ model ClaimAuthorization {
   deadline         DateTime @db.Timestamptz(6)
   signerEpoch      BigInt   @db.BigInt
   digest           String   @db.Char(66)
+  identitySignature Bytes
+  idempotencyKey   String   @db.VarChar(128)
+  requestHash      String   @db.Char(64)
   state            String   @db.VarChar(32)
   createdAt        DateTime @default(now()) @db.Timestamptz(6)
   claim            Claim    @relation(fields: [claimId], references: [id], onDelete: Restrict)
 
   @@index([claimId, state])
+  @@unique([claimId, idempotencyKey])
   @@map("claim_authorizations")
 }

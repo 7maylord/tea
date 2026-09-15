@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -18,11 +20,13 @@ import {
   isAddress,
   parseAbi,
   parseEventLogs,
+  toHex,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
 import {
@@ -32,11 +36,20 @@ import {
   readIdentityKey,
 } from '../identity/identity.crypto';
 import { claimIdentityCommitment, newClaimBinding } from './claim.crypto';
+import {
+  claimAcceptanceDigest,
+  claimAcceptanceTypedData,
+  claimAuthorizationDigest,
+  claimAuthorizationTypedData,
+} from './claim.typed-data';
 
 const escrowAbi = parseAbi([
   'function token() view returns (address)',
   'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
   'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
+  'function nonces(bytes32 claimId) view returns (uint256)',
+  'function signerEpoch() view returns (uint64)',
+  'function identitySigner() view returns (address)',
   'event ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)',
 ]);
 
@@ -516,22 +529,43 @@ export class ClaimsService implements OnModuleDestroy {
     }
   }
 
-  async resolveLink(identityToken: string | undefined, input: unknown) {
-    if (
-      !input ||
-      typeof input !== 'object' ||
-      Array.isArray(input) ||
-      Object.keys(input).join(',') !== 'token' ||
-      typeof (input as { token?: unknown }).token !== 'string' ||
-      !/^[A-Za-z0-9_-]{43}$/.test((input as { token: string }).token)
-    ) {
-      throw new BadRequestException('Invalid invitation');
+  private async readOnchainClaim(claim: Claim) {
+    const rpcUrl = process.env.RPC_URL;
+    if (!rpcUrl) throw new ServiceUnavailableException('RPC is not configured');
+    const client = createPublicClient({
+      transport: http(rpcUrl, { timeout: 5000 }),
+    });
+    try {
+      if ((await client.getChainId()) !== claim.chainId)
+        throw new Error('Wrong chain');
+      const block = await client.getBlock();
+      const onchain = await client.readContract({
+        address: claim.escrowAddress as Address,
+        abi: escrowAbi,
+        functionName: 'claims',
+        args: [claim.id as Hex],
+        blockNumber: block.number,
+      });
+      if (
+        onchain[0].toLowerCase() !== claim.payerAddress ||
+        onchain[1] !== BigInt(claim.amountUnits.toString()) ||
+        onchain[3] !== claim.identityCommitment ||
+        onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0) ||
+        onchain[4] < 1 ||
+        onchain[4] > 3
+      ) {
+        throw new NotFoundException('Invitation unavailable');
+      }
+      return { client, block, onchain };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new ServiceUnavailableException('Claim state is unavailable');
     }
-    if (!identityToken) return { requiresVerification: true };
+  }
+
+  private async verifiedInvite(identityToken: string, inviteToken: string) {
     const recipient = await this.sessions.sync(identityToken);
-    const tokenHash = createHash('sha256')
-      .update((input as { token: string }).token)
-      .digest('hex');
+    const tokenHash = createHash('sha256').update(inviteToken).digest('hex');
     const claim = await this.db.claim.findUnique({
       where: { inviteTokenHash: tokenHash },
       include: { payer: { select: { handle: true } } },
@@ -549,38 +583,26 @@ export class ClaimsService implements OnModuleDestroy {
     ) {
       throw new NotFoundException('Invitation unavailable');
     }
-    const rpcUrl = process.env.RPC_URL;
-    if (!rpcUrl) throw new ServiceUnavailableException('RPC is not configured');
-    const client = createPublicClient({
-      transport: http(rpcUrl, { timeout: 5000 }),
-    });
-    let onchain: readonly [Address, bigint, bigint, Hex, number];
-    let timestamp: bigint;
-    try {
-      if ((await client.getChainId()) !== claim.chainId)
-        throw new Error('Wrong chain');
-      const block = await client.getBlock();
-      onchain = await client.readContract({
-        address: claim.escrowAddress as Address,
-        abi: escrowAbi,
-        functionName: 'claims',
-        args: [claim.id as Hex],
-        blockNumber: block.number,
-      });
-      timestamp = block.timestamp;
-    } catch {
-      throw new ServiceUnavailableException('Claim state is unavailable');
-    }
+    return { recipient, claim };
+  }
+
+  async resolveLink(identityToken: string | undefined, input: unknown) {
     if (
-      onchain[0].toLowerCase() !== claim.payerAddress ||
-      onchain[1] !== BigInt(claim.amountUnits.toString()) ||
-      onchain[3] !== claim.identityCommitment ||
-      onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0) ||
-      onchain[4] < 1 ||
-      onchain[4] > 3
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).join(',') !== 'token' ||
+      typeof (input as { token?: unknown }).token !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test((input as { token: string }).token)
     ) {
-      throw new NotFoundException('Invitation unavailable');
+      throw new BadRequestException('Invalid invitation');
     }
+    if (!identityToken) return { requiresVerification: true };
+    const { claim } = await this.verifiedInvite(
+      identityToken,
+      (input as { token: string }).token,
+    );
+    const { block, onchain } = await this.readOnchainClaim(claim);
     return {
       id: claim.id,
       payerHandle: claim.payer.handle,
@@ -589,12 +611,251 @@ export class ClaimsService implements OnModuleDestroy {
       expiry: claim.expiry?.toISOString(),
       state:
         onchain[4] === 1
-          ? timestamp < onchain[2]
+          ? block.timestamp < onchain[2]
             ? 'OPEN'
             : 'REFUNDABLE'
           : onchain[4] === 2
             ? 'CLAIMED'
             : 'REFUNDED',
+    };
+  }
+
+  async authorize(
+    identityToken: string | undefined,
+    id: string,
+    idempotencyKey: string | undefined,
+    input: unknown,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
+    if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('Invalid Idempotency-Key');
+    }
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).join(',') !== 'inviteToken' ||
+      typeof (input as { inviteToken?: unknown }).inviteToken !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(
+        (input as { inviteToken: string }).inviteToken,
+      )
+    ) {
+      throw new BadRequestException('Invalid authorization request');
+    }
+    const { recipient, claim } = await this.verifiedInvite(
+      identityToken,
+      (input as { inviteToken: string }).inviteToken,
+    );
+    if (claim.id !== id) throw new NotFoundException('Invitation unavailable');
+    const { client, block, onchain } = await this.readOnchainClaim(claim);
+    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+      throw new ConflictException('Claim is no longer available');
+    }
+    let nonce: bigint;
+    let signerEpoch: bigint;
+    let signerAddress: Address;
+    let tokenAddress: Address;
+    try {
+      [nonce, signerEpoch, signerAddress, tokenAddress] = await Promise.all([
+        client.readContract({
+          address: claim.escrowAddress as Address,
+          abi: escrowAbi,
+          functionName: 'nonces',
+          args: [claim.id as Hex],
+          blockNumber: block.number,
+        }),
+        client.readContract({
+          address: claim.escrowAddress as Address,
+          abi: escrowAbi,
+          functionName: 'signerEpoch',
+          blockNumber: block.number,
+        }),
+        client.readContract({
+          address: claim.escrowAddress as Address,
+          abi: escrowAbi,
+          functionName: 'identitySigner',
+          blockNumber: block.number,
+        }),
+        client.readContract({
+          address: claim.escrowAddress as Address,
+          abi: escrowAbi,
+          functionName: 'token',
+          blockNumber: block.number,
+        }),
+      ]);
+    } catch {
+      throw new ServiceUnavailableException(
+        'Claim authorization state is unavailable',
+      );
+    }
+    if (tokenAddress.toLowerCase() !== claim.tokenAddress) {
+      throw new ServiceUnavailableException('Claim token changed');
+    }
+    const signerKey = process.env.CLAIM_IDENTITY_SIGNER_PRIVATE_KEY;
+    if (!signerKey || !/^0x[0-9a-fA-F]{64}$/.test(signerKey)) {
+      throw new ServiceUnavailableException('Claim signer is not configured');
+    }
+    const signer = privateKeyToAccount(signerKey as Hex);
+    if (signer.address.toLowerCase() !== signerAddress.toLowerCase()) {
+      throw new ServiceUnavailableException(
+        'Claim signer does not match escrow',
+      );
+    }
+    const requestHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          claimId: claim.id,
+          inviteTokenHash: claim.inviteTokenHash,
+          recipient: recipient.account.address,
+        }),
+      )
+      .digest('hex');
+    const existing = await this.db.claimAuthorization.findUnique({
+      where: { claimId_idempotencyKey: { claimId: claim.id, idempotencyKey } },
+    });
+    const current = Number(block.timestamp) * 1000;
+    if (existing) {
+      if (existing.requestHash !== requestHash) {
+        throw new ConflictException('Idempotency-Key already used');
+      }
+      if (
+        existing.deadline.getTime() <= current ||
+        BigInt(existing.nonce.toString()) !== nonce ||
+        existing.signerEpoch !== signerEpoch
+      ) {
+        throw new ConflictException('Authorization expired; use a new key');
+      }
+      return this.presentAuthorization(
+        claim,
+        recipient.account.address as Address,
+        existing,
+      );
+    }
+    const recent = await this.db.claimAuthorization.count({
+      where: {
+        claimId: claim.id,
+        createdAt: { gte: new Date(Date.now() - 600_000) },
+      },
+    });
+    if (recent >= 5) {
+      throw new HttpException(
+        'Authorization limit reached',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const deadline =
+      block.timestamp + 300n < onchain[2]
+        ? block.timestamp + 300n
+        : onchain[2] - 1n;
+    if (deadline <= block.timestamp) {
+      throw new ConflictException('Claim is too close to expiry');
+    }
+    const message = {
+      claimId: claim.id as Hex,
+      identityCommitment: claim.identityCommitment as Hex,
+      token: claim.tokenAddress as Address,
+      amount: BigInt(claim.amountUnits.toString()),
+      recipient: recipient.account.address as Address,
+      nonce,
+      deadline,
+      signerEpoch,
+    };
+    const signature = await signer.signTypedData(
+      claimAuthorizationTypedData(
+        claim.chainId,
+        claim.escrowAddress as Address,
+        message,
+      ),
+    );
+    const digest = claimAuthorizationDigest(
+      claim.chainId,
+      claim.escrowAddress as Address,
+      message,
+    );
+    try {
+      const created = await this.db.claimAuthorization.create({
+        data: {
+          claimId: claim.id,
+          nonce: nonce.toString(),
+          recipientAddress: recipient.account.address,
+          deadline: new Date(Number(deadline) * 1000),
+          signerEpoch,
+          digest,
+          identitySignature: Uint8Array.from(
+            Buffer.from(signature.slice(2), 'hex'),
+          ),
+          idempotencyKey,
+          requestHash,
+          state: 'ISSUED',
+        },
+      });
+      return this.presentAuthorization(
+        claim,
+        recipient.account.address as Address,
+        created,
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const replay = await this.db.claimAuthorization.findUnique({
+          where: {
+            claimId_idempotencyKey: { claimId: claim.id, idempotencyKey },
+          },
+        });
+        if (replay?.requestHash === requestHash) {
+          return this.presentAuthorization(
+            claim,
+            recipient.account.address as Address,
+            replay,
+          );
+        }
+        throw new ConflictException('Authorization already issued');
+      }
+      throw error;
+    }
+  }
+
+  private presentAuthorization(
+    claim: Claim,
+    recipientAddress: Address,
+    authorization: {
+      nonce: { toString(): string };
+      deadline: Date;
+      signerEpoch: bigint;
+      digest: string;
+      identitySignature: Uint8Array;
+    },
+  ) {
+    const digest = authorization.digest as Hex;
+    return {
+      authorization: {
+        claimId: claim.id,
+        identityCommitment: claim.identityCommitment,
+        token: claim.tokenAddress,
+        amount: claim.amountUnits.toString(),
+        recipient: recipientAddress,
+        nonce: authorization.nonce.toString(),
+        deadline: Math.floor(
+          authorization.deadline.getTime() / 1000,
+        ).toString(),
+        signerEpoch: authorization.signerEpoch.toString(),
+      },
+      authorizationDigest: digest,
+      identitySignature: toHex(authorization.identitySignature),
+      acceptanceDigest: claimAcceptanceDigest(
+        claim.chainId,
+        claim.escrowAddress as Address,
+        digest,
+      ),
+      acceptanceTypedData: claimAcceptanceTypedData(
+        claim.chainId,
+        claim.escrowAddress as Address,
+        digest,
+      ),
     };
   }
 }

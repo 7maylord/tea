@@ -39,4 +39,14 @@ export class ClaimsController {
   ) {
     return this.claims.resolveLink(token, body);
   }
+
+  @Post(':id/authorize')
+  authorize(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.claims.authorize(token, id, key, body);
+  }
 }

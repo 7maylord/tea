@@ -18,6 +18,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import {
   claimAcceptanceDigest,
+  claimAcceptanceTypedData,
   claimAuthorizationDigest,
 } from '../src/claims/claim.typed-data';
 import {
@@ -35,10 +36,16 @@ const signatureAbi = parseAbi([
   'function authorizationDigest((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization) view returns (bytes32)',
   'function acceptanceDigest(bytes32 signedAuthorizationDigest) view returns (bytes32)',
 ]);
+const claimAbi = parseAbi([
+  'function claim((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization, bytes identitySignature, bytes recipientSignature)',
+]);
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
 );
-const recipientAddress = `0x${randomBytes(20).toString('hex')}`;
+const recipientAccount = privateKeyToAccount(
+  `0x${randomBytes(32).toString('hex')}`,
+);
+const recipientAddress = recipientAccount.address.toLowerCase();
 
 describe('claim preparation (Postgres and Anvil)', () => {
   let app: INestApplication<App>;
@@ -340,5 +347,117 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect((invitation.body as { id: string }).id).toBe(claim.id);
     expect((invitation.body as { state: string }).state).toBe('OPEN');
     expect(JSON.stringify(invitation.body)).not.toContain(inviteToken);
+
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/authorize`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'authorize-one')
+      .send({ inviteToken })
+      .expect(404);
+    const authorized = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/authorize`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'authorize-one')
+      .send({ inviteToken })
+      .expect(201);
+    const proof = authorized.body as {
+      authorization: {
+        claimId: `0x${string}`;
+        identityCommitment: `0x${string}`;
+        token: Address;
+        amount: string;
+        recipient: Address;
+        nonce: string;
+        deadline: string;
+        signerEpoch: string;
+      };
+      authorizationDigest: `0x${string}`;
+      identitySignature: `0x${string}`;
+      acceptanceDigest: `0x${string}`;
+    };
+    expect(proof.authorization.recipient.toLowerCase()).toBe(recipientAddress);
+    expect(proof.authorizationDigest).toBe(
+      claimAuthorizationDigest(saved.chainId, saved.escrowAddress as Address, {
+        claimId: proof.authorization.claimId,
+        identityCommitment: proof.authorization.identityCommitment,
+        token: proof.authorization.token,
+        amount: BigInt(proof.authorization.amount),
+        recipient: proof.authorization.recipient,
+        nonce: BigInt(proof.authorization.nonce),
+        deadline: BigInt(proof.authorization.deadline),
+        signerEpoch: BigInt(proof.authorization.signerEpoch),
+      }),
+    );
+    expect(proof.acceptanceDigest).toBe(
+      claimAcceptanceDigest(
+        saved.chainId,
+        saved.escrowAddress as Address,
+        proof.authorizationDigest,
+      ),
+    );
+    const retry = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/authorize`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'authorize-one')
+      .send({ inviteToken })
+      .expect(201);
+    expect(
+      (retry.body as { identitySignature: string }).identitySignature,
+    ).toBe(proof.identitySignature);
+    const recipientSignature = await recipientAccount.signTypedData(
+      claimAcceptanceTypedData(
+        saved.chainId,
+        saved.escrowAddress as Address,
+        proof.authorizationDigest,
+      ),
+    );
+    const relayer = createWalletClient({
+      chain: foundry,
+      transport: http(process.env.RPC_URL),
+    });
+    const [relayAddress] = await relayer.getAddresses();
+    const claimHash = await relayer.writeContract({
+      account: relayAddress,
+      address: saved.escrowAddress as Address,
+      abi: claimAbi,
+      functionName: 'claim',
+      args: [
+        {
+          claimId: proof.authorization.claimId,
+          identityCommitment: proof.authorization.identityCommitment,
+          token: proof.authorization.token,
+          amount: BigInt(proof.authorization.amount),
+          recipient: proof.authorization.recipient,
+          nonce: BigInt(proof.authorization.nonce),
+          deadline: BigInt(proof.authorization.deadline),
+          signerEpoch: BigInt(proof.authorization.signerEpoch),
+        },
+        proof.identitySignature,
+        recipientSignature,
+      ],
+    });
+    expect(
+      (await client.waitForTransactionReceipt({ hash: claimHash })).status,
+    ).toBe('success');
+    expect(
+      await client.readContract({
+        address: saved.tokenAddress as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [recipientAccount.address],
+      }),
+    ).toBe(15_000_000n);
+    const claimed = await request(app.getHttpServer())
+      .post('/v1/claims/resolve-link')
+      .set('privy-id-token', 'other')
+      .send({ token: inviteToken })
+      .expect(201);
+    expect((claimed.body as { state: string }).state).toBe('CLAIMED');
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/authorize`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'authorize-two')
+      .send({ inviteToken })
+      .expect(409);
   });
 });
