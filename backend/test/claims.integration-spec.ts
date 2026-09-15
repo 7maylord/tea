@@ -17,6 +17,10 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import {
+  claimAcceptanceDigest,
+  claimAuthorizationDigest,
+} from '../src/claims/claim.typed-data';
+import {
   decryptIdentity,
   encryptIdentity,
   readIdentityKey,
@@ -25,6 +29,11 @@ import { SessionService } from '../src/identity/session.service';
 
 const depositAbi = parseAbi([
   'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
+]);
+const signatureAbi = parseAbi([
+  'function signerEpoch() view returns (uint64)',
+  'function authorizationDigest((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization) view returns (bytes32)',
+  'function acceptanceDigest(bytes32 signedAuthorizationDigest) view returns (bytes32)',
 ]);
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
@@ -256,6 +265,47 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(saved.depositTxHash).toBe(depositHash);
     expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(saved.expiry).not.toBeNull();
+
+    const signerEpoch = await client.readContract({
+      address: saved.escrowAddress as Address,
+      abi: signatureAbi,
+      functionName: 'signerEpoch',
+    });
+    const authorization = {
+      claimId: claim.id,
+      identityCommitment: saved.identityCommitment as `0x${string}`,
+      token: saved.tokenAddress as Address,
+      amount: BigInt(saved.amountUnits.toString()),
+      recipient: recipientAddress as Address,
+      nonce: 0n,
+      deadline: BigInt(Math.floor(saved.expiry!.getTime() / 1000) - 1),
+      signerEpoch,
+    };
+    const backendDigest = claimAuthorizationDigest(
+      saved.chainId,
+      saved.escrowAddress as Address,
+      authorization,
+    );
+    const onchainDigest = await client.readContract({
+      address: saved.escrowAddress as Address,
+      abi: signatureAbi,
+      functionName: 'authorizationDigest',
+      args: [authorization],
+    });
+    expect(backendDigest).toBe(onchainDigest);
+    const backendAcceptance = claimAcceptanceDigest(
+      saved.chainId,
+      saved.escrowAddress as Address,
+      backendDigest,
+    );
+    expect(backendAcceptance).toBe(
+      await client.readContract({
+        address: saved.escrowAddress as Address,
+        abi: signatureAbi,
+        functionName: 'acceptanceDigest',
+        args: [backendDigest],
+      }),
+    );
 
     const encryptionKey = readIdentityKey(process.env.IDENTITY_ENCRYPTION_KEY);
     const inviteToken = decryptIdentity(
