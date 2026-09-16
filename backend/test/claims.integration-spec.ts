@@ -19,6 +19,7 @@ import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { processNextClaimInvite } from '../src/claims/invite.worker';
 import { processNextClaimRefund } from '../src/claims/refund.worker';
+import { processNextClaimRelay } from '../src/claims/relay.worker';
 import {
   claimAcceptanceDigest,
   claimAcceptanceTypedData,
@@ -38,9 +39,6 @@ const signatureAbi = parseAbi([
   'function signerEpoch() view returns (uint64)',
   'function authorizationDigest((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization) view returns (bytes32)',
   'function acceptanceDigest(bytes32 signedAuthorizationDigest) view returns (bytes32)',
-]);
-const claimAbi = parseAbi([
-  'function claim((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization, bytes identitySignature, bytes recipientSignature)',
 ]);
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
@@ -462,34 +460,73 @@ describe('claim preparation (Postgres and Anvil)', () => {
         proof.authorizationDigest,
       ),
     );
-    const relayer = createWalletClient({
-      chain: foundry,
-      transport: http(process.env.RPC_URL),
+    const acceptance = {
+      inviteToken,
+      authorizationDigest: proof.authorizationDigest,
+      recipientSignature,
+    };
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/submit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'submit-one')
+      .send(acceptance)
+      .expect(404);
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/submit`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'submit-one')
+      .send({
+        ...acceptance,
+        recipientSignature: await payerAccount.signTypedData(
+          claimAcceptanceTypedData(
+            saved.chainId,
+            saved.escrowAddress as Address,
+            proof.authorizationDigest,
+          ),
+        ),
+      })
+      .expect(400);
+    const submitted = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/submit`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'submit-one')
+      .send(acceptance)
+      .expect(201);
+    expect((submitted.body as { state: string }).state).toBe('PENDING');
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/submit`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'submit-one')
+      .send(acceptance)
+      .expect(201);
+    expect(await processNextClaimRelay(db)).toBe(true);
+    const relayJob = await db.outboxJob.findFirstOrThrow({
+      where: { claimId: claim.id, kind: 'CLAIM_RELAY' },
     });
-    const [relayAddress] = await relayer.getAddresses();
-    const claimHash = await relayer.writeContract({
-      account: relayAddress,
-      address: saved.escrowAddress as Address,
-      abi: claimAbi,
-      functionName: 'claim',
-      args: [
-        {
-          claimId: proof.authorization.claimId,
-          identityCommitment: proof.authorization.identityCommitment,
-          token: proof.authorization.token,
-          amount: BigInt(proof.authorization.amount),
-          recipient: proof.authorization.recipient,
-          nonce: BigInt(proof.authorization.nonce),
-          deadline: BigInt(proof.authorization.deadline),
-          signerEpoch: BigInt(proof.authorization.signerEpoch),
-        },
-        proof.identitySignature,
-        recipientSignature,
-      ],
-    });
+    expect(relayJob.state).toBe('SUBMITTED');
+    const claimHash = relayJob.txHash as `0x${string}`;
     expect(
       (await client.waitForTransactionReceipt({ hash: claimHash })).status,
     ).toBe('success');
+    await db.outboxJob.update({
+      where: { id: relayJob.id },
+      data: { nextAttemptAt: new Date(0) },
+    });
+    expect(await processNextClaimRelay(db)).toBe(true);
+    expect(await processNextClaimRelay(db)).toBe(false);
+    expect(
+      (await db.outboxJob.findUniqueOrThrow({ where: { id: relayJob.id } }))
+        .state,
+    ).toBe('SENT');
+    const replayAfterSettlement = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/submit`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'submit-one')
+      .send(acceptance)
+      .expect(201);
+    expect((replayAfterSettlement.body as { state: string }).state).toBe(
+      'SENT',
+    );
     expect(
       await client.readContract({
         address: saved.tokenAddress as Address,

@@ -924,6 +924,162 @@ export class ClaimsService implements OnModuleDestroy {
     };
   }
 
+  async submit(
+    identityToken: string | undefined,
+    id: string,
+    idempotencyKey: string | undefined,
+    input: unknown,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
+    if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('Invalid Idempotency-Key');
+    }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) {
+      throw new BadRequestException('Invalid claim acceptance');
+    }
+    const body = input as Record<string, unknown>;
+    if (
+      Object.keys(body).sort().join(',') !==
+        'authorizationDigest,inviteToken,recipientSignature' ||
+      typeof body.inviteToken !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(body.inviteToken) ||
+      typeof body.authorizationDigest !== 'string' ||
+      !/^0x[0-9a-fA-F]{64}$/.test(body.authorizationDigest) ||
+      typeof body.recipientSignature !== 'string' ||
+      body.recipientSignature.length > 4098 ||
+      !/^0x(?:[0-9a-fA-F]{2})+$/.test(body.recipientSignature)
+    ) {
+      throw new BadRequestException('Invalid claim acceptance');
+    }
+    const { recipient, claim } = await this.verifiedInvite(
+      identityToken,
+      body.inviteToken,
+    );
+    if (claim.id !== id) throw new NotFoundException('Invitation unavailable');
+    const authorization = await this.db.claimAuthorization.findFirst({
+      where: { claimId: id, digest: body.authorizationDigest.toLowerCase() },
+    });
+    if (
+      !authorization ||
+      authorization.recipientAddress !== recipient.account.address.toLowerCase()
+    ) {
+      throw new NotFoundException('Authorization unavailable');
+    }
+    const signature = body.recipientSignature.toLowerCase() as Hex;
+    const existingJob = await this.db.outboxJob.findUnique({
+      where: { dedupeKey: `claim-relay:${id}` },
+    });
+    if (existingJob && existingJob.state !== 'CANCELED') {
+      if (
+        toHex(authorization.recipientSignature ?? new Uint8Array()) !==
+        signature
+      ) {
+        throw new ConflictException('Claim already submitted');
+      }
+      return { id, state: existingJob.state, txHash: existingJob.txHash };
+    }
+    const { client, block, onchain } = await this.readOnchainClaim(claim);
+    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+      throw new ConflictException('Claim is no longer available');
+    }
+    const [nonce, signerEpoch] = await Promise.all([
+      client.readContract({
+        address: claim.escrowAddress as Address,
+        abi: escrowAbi,
+        functionName: 'nonces',
+        args: [claim.id as Hex],
+        blockNumber: block.number,
+      }),
+      client.readContract({
+        address: claim.escrowAddress as Address,
+        abi: escrowAbi,
+        functionName: 'signerEpoch',
+        blockNumber: block.number,
+      }),
+    ]);
+    if (
+      BigInt(authorization.nonce.toString()) !== nonce ||
+      authorization.signerEpoch !== signerEpoch ||
+      BigInt(Math.floor(authorization.deadline.getTime() / 1000)) <
+        block.timestamp
+    ) {
+      throw new ConflictException('Authorization expired');
+    }
+    const valid = await client.verifyTypedData({
+      address: recipient.account.address as Address,
+      ...claimAcceptanceTypedData(
+        claim.chainId,
+        claim.escrowAddress as Address,
+        authorization.digest as Hex,
+      ),
+      signature,
+      blockNumber: block.number,
+    });
+    if (!valid) throw new BadRequestException('Invalid recipient signature');
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "claims" WHERE "id" = ${id} FOR UPDATE`;
+      const existing = await tx.outboxJob.findUnique({
+        where: { dedupeKey: `claim-relay:${id}` },
+      });
+      if (existing?.state === 'CANCELED' && authorization.state === 'ISSUED') {
+        await tx.claimAuthorization.update({
+          where: { id: authorization.id },
+          data: {
+            state: 'ACCEPTED',
+            recipientSignature: Uint8Array.from(
+              Buffer.from(signature.slice(2), 'hex'),
+            ),
+          },
+        });
+        await tx.outboxJob.update({
+          where: { id: existing.id },
+          data: {
+            state: 'PENDING',
+            txHash: null,
+            leaseUntil: null,
+            nextAttemptAt: new Date(),
+          },
+        });
+        return { id, state: 'PENDING', txHash: null };
+      }
+      if (existing) {
+        const accepted = await tx.claimAuthorization.findFirst({
+          where: {
+            claimId: id,
+            state: { in: ['ACCEPTED', 'SUBMITTED', 'CONSUMED'] },
+          },
+        });
+        if (
+          accepted?.id !== authorization.id ||
+          toHex(accepted.recipientSignature ?? new Uint8Array()) !== signature
+        ) {
+          throw new ConflictException('Claim already submitted');
+        }
+        return { id, state: existing.state, txHash: existing.txHash };
+      }
+      await tx.claimAuthorization.update({
+        where: { id: authorization.id },
+        data: {
+          state: 'ACCEPTED',
+          recipientSignature: Uint8Array.from(
+            Buffer.from(signature.slice(2), 'hex'),
+          ),
+        },
+      });
+      await tx.outboxJob.create({
+        data: {
+          claimId: id,
+          kind: 'CLAIM_RELAY',
+          dedupeKey: `claim-relay:${id}`,
+          state: 'PENDING',
+        },
+      });
+      return { id, state: 'PENDING', txHash: null };
+    });
+  }
+
   async requestRefund(
     identityToken: string | undefined,
     id: string,

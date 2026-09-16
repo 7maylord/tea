@@ -145,6 +145,7 @@ model ClaimAuthorization {
   signerEpoch      BigInt   @db.BigInt
   digest           String   @db.Char(66)
   identitySignature Bytes
+  recipientSignature Bytes?
   idempotencyKey   String   @db.VarChar(128)
   requestHash      String   @db.Char(64)
   state            String   @db.VarChar(32)

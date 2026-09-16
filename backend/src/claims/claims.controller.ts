@@ -50,6 +50,16 @@ export class ClaimsController {
     return this.claims.authorize(token, id, key, body);
   }
 
+  @Post(':id/submit')
+  submit(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.claims.submit(token, id, key, body);
+  }
+
   @Post(':id/refund')
   refund(
     @Headers('privy-id-token') token: string | undefined,
