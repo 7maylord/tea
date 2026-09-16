@@ -87,6 +87,7 @@ export class PaymentsService implements OnModuleDestroy {
       const outgoing = intent.payerId === user.id;
       return {
         id: intent.id,
+        kind: intent.kind,
         direction: outgoing ? 'OUTGOING' : 'INCOMING',
         state:
           intent.state === 'AWAITING_AUTHORIZATION' &&
@@ -280,6 +281,8 @@ export class PaymentsService implements OnModuleDestroy {
       },
     });
     if (existing) {
+      if (existing.kind !== 'DIRECT')
+        throw new ConflictException('Idempotency-Key already used');
       if (existing.requestHash !== requestHash)
         throw new ConflictException('Idempotency-Key already used');
       return this.present(existing);
@@ -305,6 +308,8 @@ export class PaymentsService implements OnModuleDestroy {
           },
         });
         if (replay) {
+          if (replay.kind !== 'DIRECT')
+            throw new ConflictException('Idempotency-Key already used');
           if (replay.requestHash !== requestHash)
             throw new ConflictException('Idempotency-Key already used');
           return replay;
@@ -383,7 +388,7 @@ export class PaymentsService implements OnModuleDestroy {
     }
     const payer = await this.sessions.sync(identityToken);
     const intent = await this.db.paymentIntent.findFirst({
-      where: { id, payerId: payer.id },
+      where: { id, payerId: payer.id, kind: 'DIRECT' },
     });
     if (!intent) throw new NotFoundException();
     const attempt = await this.db.transactionAttempt.findFirst({
@@ -450,7 +455,7 @@ export class PaymentsService implements OnModuleDestroy {
     const hash = rawHash.toLowerCase() as Hex;
     const payer = await this.sessions.sync(identityToken);
     const intent = await this.db.paymentIntent.findFirst({
-      where: { id, payerId: payer.id },
+      where: { id, payerId: payer.id, kind: 'DIRECT' },
     });
     if (!intent) throw new NotFoundException();
     if (intent.preparedAtBlock === null) {

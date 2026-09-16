@@ -61,6 +61,9 @@ model PaymentIntent {
   payerAddress           String               @db.VarChar(42)
   recipientAddress       String               @db.VarChar(42)
   amountUnits            Decimal              @db.Decimal(78, 0)
+  streamAddress          String?              @db.VarChar(42)
+  durationSeconds        BigInt?              @db.BigInt
+  streamId               Decimal?             @db.Decimal(78, 0)
   preparedAtBlock        BigInt?              @db.BigInt
   kind                   String               @db.VarChar(16)
   state                  String               @db.VarChar(32)

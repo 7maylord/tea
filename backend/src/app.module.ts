@@ -12,6 +12,8 @@ import { PaymentsService } from './payments/payments.service';
 import { ActivityController } from './payments/activity.controller';
 import { ClaimsController } from './claims/claims.controller';
 import { ClaimsService } from './claims/claims.service';
+import { StreamsController } from './streams/streams.controller';
+import { StreamsService } from './streams/streams.service';
 
 @Module({
   imports: [],
@@ -24,6 +26,7 @@ import { ClaimsService } from './claims/claims.service';
     PaymentsController,
     ActivityController,
     ClaimsController,
+    StreamsController,
   ],
   providers: [
     AppService,
@@ -31,6 +34,7 @@ import { ClaimsService } from './claims/claims.service';
     FundsService,
     PaymentsService,
     ClaimsService,
+    StreamsService,
   ],
 })
 export class AppModule {}
