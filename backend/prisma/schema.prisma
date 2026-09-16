@@ -163,6 +163,7 @@ model OutboxJob {
   dedupeKey     String    @unique @db.VarChar(128)
   state         String    @db.VarChar(16)
   attempts      Int       @default(0)
+  txHash        String?   @db.VarChar(66)
   nextAttemptAt DateTime  @default(now()) @db.Timestamptz(6)
   leaseUntil    DateTime? @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @db.Timestamptz(6)

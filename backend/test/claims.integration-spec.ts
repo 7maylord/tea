@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { Test } from '@nestjs/testing';
 import {
   createPublicClient,
+  createTestClient,
   createWalletClient,
   decodeFunctionData,
   erc20Abi,
@@ -17,6 +18,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { processNextClaimInvite } from '../src/claims/invite.worker';
+import { processNextClaimRefund } from '../src/claims/refund.worker';
 import {
   claimAcceptanceDigest,
   claimAcceptanceTypedData,
@@ -53,6 +55,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
   const db = new PrismaClient();
   let payerId: string;
   let otherId: string;
+  let firstClaimId: string;
   const payerAddress = payerAccount.address.toLowerCase();
 
   beforeAll(async () => {
@@ -153,6 +156,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
       };
     };
     expect(claim.id).toMatch(/^0x[0-9a-f]{64}$/);
+    firstClaimId = claim.id;
     expect(claim.state).toBe('AWAITING_DEPOSIT');
     expect(JSON.stringify(claim)).not.toContain('Name+tag');
     expect(claim.plan.approve.to.toLowerCase()).toBe(
@@ -275,7 +279,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(saved.depositTxHash).toBe(depositHash);
     expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(saved.expiry).not.toBeNull();
-    expect(await db.outboxJob.count({ where: { claimId: claim.id } })).toBe(1);
+    expect(await db.outboxJob.count({ where: { claimId: claim.id } })).toBe(2);
 
     const originalFetch = global.fetch;
     const fetchMock = jest
@@ -306,8 +310,11 @@ describe('claim preparation (Postgres and Anvil)', () => {
       expect(requestBody.text).toContain('/claim/');
       expect(requestBody.text).not.toContain(saved.identityCommitment);
       expect(
-        (await db.outboxJob.findFirstOrThrow({ where: { claimId: claim.id } }))
-          .state,
+        (
+          await db.outboxJob.findFirstOrThrow({
+            where: { claimId: claim.id, kind: 'CLAIM_INVITE' },
+          })
+        ).state,
       ).toBe('SENT');
     } finally {
       fetchMock.mockRestore();
@@ -497,11 +504,134 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .send({ token: inviteToken })
       .expect(201);
     expect((claimed.body as { state: string }).state).toBe('CLAIMED');
+    const payerView = await request(app.getHttpServer())
+      .get(`/v1/claims/${claim.id}`)
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((payerView.body as { state: string }).state).toBe('CLAIMED');
     await request(app.getHttpServer())
       .post(`/v1/claims/${claim.id}/authorize`)
       .set('privy-id-token', 'other')
       .set('Idempotency-Key', 'authorize-two')
       .send({ inviteToken })
       .expect(409);
+  });
+
+  it('refunds only an expired open claim and cancels a claimed refund job', async () => {
+    const prepared = await request(app.getHttpServer())
+      .post('/v1/claims')
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'claim-refund-one')
+      .send({ recipientEmail: 'refund@example.com', amountUnits: '2000000' })
+      .expect(201);
+    const claim = prepared.body as {
+      id: string;
+      plan: {
+        approve: { to: Address; data: `0x${string}` };
+        deposit: { to: Address; data: `0x${string}` };
+      };
+    };
+    const signer = createWalletClient({
+      account: payerAccount,
+      chain: foundry,
+      transport: http(process.env.RPC_URL),
+    });
+    const client = createPublicClient({ transport: http(process.env.RPC_URL) });
+    const approvalHash = await signer.sendTransaction({
+      to: claim.plan.approve.to,
+      data: claim.plan.approve.data,
+      value: 0n,
+    });
+    await client.waitForTransactionReceipt({ hash: approvalHash });
+    const depositHash = await signer.sendTransaction({
+      to: claim.plan.deposit.to,
+      data: claim.plan.deposit.data,
+      value: 0n,
+    });
+    await client.waitForTransactionReceipt({ hash: depositHash });
+    const deposited = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/deposit`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'refund-deposit-one')
+      .send({ txHash: depositHash })
+      .expect(201);
+    expect((deposited.body as { state: string }).state).toBe('OPEN');
+    expect(await processNextClaimRefund(db)).toBe(false);
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/refund`)
+      .set('privy-id-token', 'other')
+      .set('Idempotency-Key', 'request-refund')
+      .expect(404);
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/refund`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'request-refund')
+      .expect(409);
+
+    const testClient = createTestClient({
+      chain: foundry,
+      mode: 'anvil',
+      transport: http(process.env.RPC_URL),
+    });
+    await testClient.increaseTime({ seconds: 14 * 24 * 60 * 60 + 1 });
+    await testClient.mine({ blocks: 1 });
+    await db.outboxJob.updateMany({
+      where: { kind: 'CLAIM_REFUND', claimId: firstClaimId },
+      data: { nextAttemptAt: new Date(0) },
+    });
+    const requested = await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/refund`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'request-refund')
+      .expect(201);
+    expect((requested.body as { state: string }).state).toBe('QUEUED');
+    await request(app.getHttpServer())
+      .post(`/v1/claims/${claim.id}/refund`)
+      .set('privy-id-token', 'payer')
+      .set('Idempotency-Key', 'request-refund')
+      .expect(201);
+    expect(await processNextClaimRefund(db)).toBe(true);
+    expect(
+      (
+        await db.outboxJob.findFirstOrThrow({
+          where: { claimId: firstClaimId, kind: 'CLAIM_REFUND' },
+        })
+      ).state,
+    ).toBe('CANCELED');
+    expect(await processNextClaimRefund(db)).toBe(true);
+    const refundJob = await db.outboxJob.findFirstOrThrow({
+      where: { claimId: claim.id, kind: 'CLAIM_REFUND' },
+    });
+    expect(refundJob.state).toBe('SUBMITTED');
+    expect(refundJob.txHash).toMatch(/^0x[0-9a-f]{64}$/);
+    await client.waitForTransactionReceipt({
+      hash: refundJob.txHash as `0x${string}`,
+    });
+    await db.outboxJob.update({
+      where: { id: refundJob.id },
+      data: { nextAttemptAt: new Date(0) },
+    });
+    expect(await processNextClaimRefund(db)).toBe(true);
+    expect(await processNextClaimRefund(db)).toBe(false);
+    expect(
+      (await db.outboxJob.findUniqueOrThrow({ where: { id: refundJob.id } }))
+        .state,
+    ).toBe('SENT');
+    expect(
+      (await db.claim.findUniqueOrThrow({ where: { id: claim.id } })).state,
+    ).toBe('REFUNDED');
+    const payerView = await request(app.getHttpServer())
+      .get(`/v1/claims/${claim.id}`)
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((payerView.body as { state: string }).state).toBe('REFUNDED');
+    expect(
+      await client.readContract({
+        address: process.env.SETTLEMENT_TOKEN as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [payerAccount.address],
+      }),
+    ).toBe(5_000_000n);
   });
 });

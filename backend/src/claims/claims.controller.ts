@@ -49,4 +49,13 @@ export class ClaimsController {
   ) {
     return this.claims.authorize(token, id, key, body);
   }
+
+  @Post(':id/refund')
+  refund(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.claims.requestRefund(token, id, key);
+  }
 }

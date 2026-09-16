@@ -8,6 +8,7 @@ import {
   type Hex,
 } from 'viem';
 import { decryptIdentity, readIdentityKey } from '../identity/identity.crypto';
+import { processNextClaimRefund } from './refund.worker';
 
 const escrowAbi = parseAbi([
   'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
@@ -141,8 +142,11 @@ async function main() {
   });
   try {
     while (!stopping) {
-      const processed = await processNextClaimInvite(db);
-      if (!processed) await delay(2_000);
+      const [invite, refund] = await Promise.all([
+        processNextClaimInvite(db),
+        processNextClaimRefund(db),
+      ]);
+      if (!invite && !refund) await delay(2_000);
     }
   } finally {
     await db.$disconnect();

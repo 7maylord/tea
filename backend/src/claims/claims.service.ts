@@ -57,6 +57,27 @@ const escrowAbi = parseAbi([
 export class ClaimsService implements OnModuleDestroy {
   private readonly db = new PrismaClient();
 
+  private jobsForOpenClaim(
+    claimId: string,
+    expiry: Date,
+  ): Prisma.OutboxJobCreateManyInput[] {
+    return [
+      {
+        claimId,
+        kind: 'CLAIM_INVITE',
+        dedupeKey: `claim-invite:${claimId}`,
+        state: 'PENDING',
+      },
+      {
+        claimId,
+        kind: 'CLAIM_REFUND',
+        dedupeKey: `claim-refund:${claimId}`,
+        state: 'PENDING',
+        nextAttemptAt: expiry,
+      },
+    ];
+  }
+
   constructor(
     private readonly sessions: SessionService,
     private readonly funds: FundsService,
@@ -315,7 +336,21 @@ export class ClaimsService implements OnModuleDestroy {
       where: { id, payerId: payer.id },
     });
     if (!claim) throw new NotFoundException();
-    return this.present(await this.refreshDeposit(claim));
+    const refreshed = await this.refreshDeposit(claim);
+    if (!['OPEN', 'CLAIMED', 'REFUNDED'].includes(refreshed.state)) {
+      return this.present(refreshed);
+    }
+    const { onchain } = await this.readOnchainClaim(refreshed);
+    const state =
+      onchain[4] === 2 ? 'CLAIMED' : onchain[4] === 3 ? 'REFUNDED' : 'OPEN';
+    if (state === refreshed.state) return this.present(refreshed);
+    await this.db.claim.updateMany({
+      where: { id, state: refreshed.state },
+      data: { state },
+    });
+    return this.present(
+      await this.db.claim.findUniqueOrThrow({ where: { id } }),
+    );
   }
 
   private async observeDeposit(claim: Claim, hash: Hex) {
@@ -421,6 +456,7 @@ export class ClaimsService implements OnModuleDestroy {
   }
 
   private async refreshDeposit(claim: Claim): Promise<Claim> {
+    if (claim.state === 'CLAIMED' || claim.state === 'REFUNDED') return claim;
     if (!claim.depositTxHash) return claim;
     const observed = await this.observeDeposit(
       claim,
@@ -432,13 +468,9 @@ export class ClaimsService implements OnModuleDestroy {
       (observed.expiry?.getTime() ?? null) === (claim.expiry?.getTime() ?? null)
     ) {
       if (observed.state === 'OPEN') {
+        if (!observed.expiry) throw new Error('Verified expiry missing');
         await this.db.outboxJob.createMany({
-          data: {
-            claimId: claim.id,
-            kind: 'CLAIM_INVITE',
-            dedupeKey: `claim-invite:${claim.id}`,
-            state: 'PENDING',
-          },
+          data: this.jobsForOpenClaim(claim.id, observed.expiry),
           skipDuplicates: true,
         });
       }
@@ -455,13 +487,9 @@ export class ClaimsService implements OnModuleDestroy {
         },
       });
       if (observed.state === 'OPEN') {
+        if (!observed.expiry) throw new Error('Verified expiry missing');
         await tx.outboxJob.createMany({
-          data: {
-            claimId: claim.id,
-            kind: 'CLAIM_INVITE',
-            dedupeKey: `claim-invite:${claim.id}`,
-            state: 'PENDING',
-          },
+          data: this.jobsForOpenClaim(claim.id, observed.expiry),
           skipDuplicates: true,
         });
       }
@@ -516,6 +544,10 @@ export class ClaimsService implements OnModuleDestroy {
       const updated = await this.db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "claims" WHERE "id" = ${id} FOR UPDATE`;
         const current = await tx.claim.findUniqueOrThrow({ where: { id } });
+        if (current.state === 'CLAIMED' || current.state === 'REFUNDED') {
+          if (current.depositTxHash === hash) return current;
+          throw new ConflictException('Claim is closed');
+        }
         if (
           current.depositSubmissionKey === idempotencyKey &&
           current.depositSubmissionHash !== requestHash
@@ -542,13 +574,9 @@ export class ClaimsService implements OnModuleDestroy {
           },
         });
         if (observed.state === 'OPEN') {
+          if (!observed.expiry) throw new Error('Verified expiry missing');
           await tx.outboxJob.createMany({
-            data: {
-              claimId: id,
-              kind: 'CLAIM_INVITE',
-              dedupeKey: `claim-invite:${id}`,
-              state: 'PENDING',
-            },
+            data: this.jobsForOpenClaim(id, observed.expiry),
             skipDuplicates: true,
           });
         }
@@ -894,5 +922,43 @@ export class ClaimsService implements OnModuleDestroy {
         digest,
       ),
     };
+  }
+
+  async requestRefund(
+    identityToken: string | undefined,
+    id: string,
+    idempotencyKey: string | undefined,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
+    if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('Invalid Idempotency-Key');
+    }
+    const payer = await this.sessions.sync(identityToken);
+    const claim = await this.db.claim.findFirst({
+      where: { id, payerId: payer.id },
+    });
+    if (!claim) throw new NotFoundException();
+    const { block, onchain } = await this.readOnchainClaim(claim);
+    if (onchain[4] === 2) return { id, state: 'CLAIMED' };
+    if (onchain[4] === 3) return { id, state: 'REFUNDED' };
+    if (block.timestamp < onchain[2]) {
+      throw new ConflictException('Claim is not yet refundable');
+    }
+    await this.db.outboxJob.createMany({
+      data: {
+        claimId: id,
+        kind: 'CLAIM_REFUND',
+        dedupeKey: `claim-refund:${id}`,
+        state: 'PENDING',
+      },
+      skipDuplicates: true,
+    });
+    await this.db.outboxJob.updateMany({
+      where: { dedupeKey: `claim-refund:${id}`, state: 'PENDING' },
+      data: { nextAttemptAt: new Date() },
+    });
+    return { id, state: 'QUEUED' };
   }
 }
