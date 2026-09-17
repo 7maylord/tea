@@ -28,6 +28,7 @@ import {
 } from 'viem';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
+import { matchIndexedReceipt, type IndexedEvent } from './indexed-receipt';
 
 @Injectable()
 export class PaymentsService implements OnModuleDestroy {
@@ -41,6 +42,44 @@ export class PaymentsService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.db.$disconnect();
+  }
+
+  private async indexedEvents(hashes: string[]) {
+    const url = process.env.ENVIO_GRAPHQL_URL;
+    const secret = process.env.ENVIO_ADMIN_SECRET;
+    if (!url || !secret || hashes.length === 0) {
+      return { available: false, events: [] as IndexedEvent[] };
+    }
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-hasura-admin-secret': secret,
+        },
+        body: JSON.stringify({
+          query: `query($hashes: [String!]!) {
+            ChainEvent(where: {txHash: {_in: $hashes}}, limit: 100) {
+              id chainId txHash logIndex blockNumber blockHash contractAddress
+              eventType fromAddress toAddress amountUnits streamId
+            }
+          }`,
+          variables: { hashes },
+        }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!response.ok) throw new Error('Indexer unavailable');
+      const payload = (await response.json()) as {
+        data?: { ChainEvent?: IndexedEvent[] };
+        errors?: unknown[];
+      };
+      if (payload.errors?.length || !Array.isArray(payload.data?.ChainEvent)) {
+        throw new Error('Indexer response invalid');
+      }
+      return { available: true, events: payload.data.ChainEvent };
+    } catch {
+      return { available: false, events: [] as IndexedEvent[] };
+    }
   }
 
   async activity(identityToken: string | undefined, cursor?: string) {
@@ -79,11 +118,17 @@ export class PaymentsService implements OnModuleDestroy {
         attempts: {
           orderBy: { submittedAt: 'desc' },
           take: 1,
-          select: { txHash: true, blockNumber: true },
+          select: { txHash: true, blockNumber: true, blockHash: true },
         },
       },
     });
-    const items = rows.slice(0, this.activityPageSize).map((intent) => {
+    const visible = rows.slice(0, this.activityPageSize);
+    const indexed = await this.indexedEvents(
+      visible
+        .filter((intent) => intent.state === 'CONFIRMED')
+        .flatMap((intent) => intent.attempts.map((attempt) => attempt.txHash)),
+    );
+    const items = visible.map((intent) => {
       const outgoing = intent.payerId === user.id;
       return {
         id: intent.id,
@@ -102,10 +147,15 @@ export class PaymentsService implements OnModuleDestroy {
         createdAt: intent.createdAt.toISOString(),
         txHash: intent.attempts[0]?.txHash ?? null,
         blockNumber: intent.attempts[0]?.blockNumber?.toString() ?? null,
+        indexedReceipt:
+          intent.state === 'CONFIRMED'
+            ? matchIndexedReceipt(intent, intent.attempts[0], indexed.events)
+            : null,
       };
     });
     return {
       items,
+      indexerAvailable: indexed.available,
       nextCursor:
         rows.length > this.activityPageSize
           ? items[this.activityPageSize - 1].id

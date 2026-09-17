@@ -314,6 +314,25 @@ describe('direct payment intents (Postgres and Anvil)', () => {
         txHash: transferHash.toLowerCase(),
       }),
     ]);
+    if (process.env.ENVIO_GRAPHQL_URL) {
+      let receipt: { id: string; txHash: string } | null = null;
+      for (let attempt = 0; attempt < 20 && !receipt; attempt++) {
+        const activity = await request(app.getHttpServer())
+          .get('/v1/activity')
+          .set('privy-id-token', 'other')
+          .expect(200);
+        receipt = (
+          activity.body as {
+            items: { indexedReceipt: { id: string; txHash: string } | null }[];
+          }
+        ).items[0].indexedReceipt;
+        if (!receipt) await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      expect(receipt).toMatchObject({
+        txHash: transferHash.toLowerCase(),
+      });
+      expect(receipt?.id).toMatch(/^31337:0x[0-9a-f]{64}:[0-9]+$/);
+    }
     await request(app.getHttpServer())
       .get('/v1/activity')
       .query({ cursor: uncertainId })
