@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=./node_modules/envio/evm.schema.json
+name: tea-local
+description: TEA settlement events on local Anvil
+address_format: lowercase
+contracts:
+  - name: SettlementToken
+    events:
+      - event: "Transfer(address indexed from, address indexed to, uint256 value)"
+  - name: TeaStream
+    events:
+      - event: "StreamCreated(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 deposit, uint64 start, uint64 end)"
+      - event: "StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount)"
+      - event: "StreamCanceled(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 recipientEntitlement, uint256 senderRefund)"
+  - name: TeaClaimEscrow
+    events:
+      - event: "ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)"
+      - event: "ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, uint256 amount)"
+      - event: "ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)"
+chains:
+  - id: 31337
+    rpc: ${ENVIO_RPC_URL:-http://127.0.0.1:8545}
+    start_block: 0
+    contracts:
+      - name: SettlementToken
+        address: ${SETTLEMENT_TOKEN:-0x5FbDB2315678afecb367f032d93F642f64180aa3}
+      - name: TeaStream
+        address: ${TEA_STREAM_ADDRESS:-0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512}
+      - name: TeaClaimEscrow
+        address: ${CLAIM_ESCROW_ADDRESS:-0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0}

@@ -1,0 +1,20 @@
+type ChainEvent {
+  id: ID!
+  chainId: Int!
+  txHash: String!
+  logIndex: Int!
+  blockNumber: BigInt!
+  blockHash: String!
+  blockTimestamp: BigInt!
+  contractAddress: String!
+  eventType: String!
+  fromAddress: String
+  toAddress: String
+  amountUnits: BigInt
+  streamId: BigInt
+  claimId: String
+  start: BigInt
+  end: BigInt
+  recipientEntitlementUnits: BigInt
+  senderRefundUnits: BigInt
+}
