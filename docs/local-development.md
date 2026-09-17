@@ -88,6 +88,8 @@ After the wallet broadcasts a transfer, `POST /v1/payments/:id/submission` accep
 
 Start Envio separately from `indexer/` with `ENVIO_TUI=false ENVIO_PG_PORT=55433 pnpm dev` and the local Anvil contracts configured as in `indexer/.env.example`. Its GraphQL endpoint is `http://127.0.0.1:8080/v1/graphql`. Set `ENVIO_GRAPHQL_URL` to that URL and `ENVIO_ADMIN_SECRET=testing` in the local backend environment. `GET /v1/activity` includes an `indexedReceipt` only when Envio's event matches the confirmed intent and its canonical block hash. A confirmed payment without an indexed receipt remains confirmed while activity catches up. Run `pnpm test:payments` with those Envio variables to verify this path against Anvil and the live indexer.
 
+`GET /v1/threads` lists one thread per pair of users and chain, with a cursor for the next page. `GET /v1/threads/:id` returns that thread's authorized payment activity and indexed receipts. The payer sees their pending attempts; the recipient sees only confirmed payments. Other users receive 404. Direct payments and streams between the same two users share a thread.
+
 These credentials and Anvil accounts are for local tests only. Stop services with `docker compose -f infrastructure/compose.yaml down`. Add `-v` only when you intend to delete the local database and queue state.
 
 Once the app flows are implemented, run two-user send, claim/refund and stream journeys against this stack, including a backend/worker restart and a repeated submission. The local run proves app behavior; the target-network sponsorship and deployment gates in the implementation plan remain separate.

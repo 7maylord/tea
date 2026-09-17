@@ -17,9 +17,26 @@ model User {
   accounts         Account[]
   outgoingPayments PaymentIntent[] @relation("OutgoingPayments")
   incomingPayments PaymentIntent[] @relation("IncomingPayments")
-  outgoingClaims  Claim[]         @relation("OutgoingClaims")
+  outgoingClaims   Claim[]         @relation("OutgoingClaims")
+  lowerThreads     Thread[]        @relation("LowerThreadUser")
+  upperThreads     Thread[]        @relation("UpperThreadUser")
 
   @@map("users")
+}
+
+model Thread {
+  id             String          @id @default(uuid()) @db.Uuid
+  chainId        Int
+  lowerUserId    String          @db.Uuid
+  upperUserId    String          @db.Uuid
+  lastActivityAt DateTime        @default(now()) @db.Timestamptz(6)
+  lowerUser      User            @relation("LowerThreadUser", fields: [lowerUserId], references: [id], onDelete: Restrict)
+  upperUser      User            @relation("UpperThreadUser", fields: [upperUserId], references: [id], onDelete: Restrict)
+  payments       PaymentIntent[]
+
+  @@unique([chainId, lowerUserId, upperUserId])
+  @@index([lastActivityAt, id])
+  @@map("threads")
 }
 
 model Identity {
@@ -56,6 +73,7 @@ model PaymentIntent {
   id                     String               @id @default(uuid()) @db.Uuid
   payerId                String               @db.Uuid
   recipientUserId        String?              @db.Uuid
+  threadId               String?              @db.Uuid
   chainId                Int
   tokenAddress           String               @db.VarChar(42)
   payerAddress           String               @db.VarChar(42)
@@ -74,10 +92,12 @@ model PaymentIntent {
   updatedAt              DateTime             @updatedAt @db.Timestamptz(6)
   payer                  User                 @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
   recipient              User?                @relation("IncomingPayments", fields: [recipientUserId], references: [id], onDelete: Restrict)
+  thread                 Thread?              @relation(fields: [threadId], references: [id], onDelete: Restrict)
   attempts               TransactionAttempt[]
 
   @@unique([payerId, idempotencyKey])
   @@index([payerId, state, authorizationExpiresAt])
+  @@index([threadId, createdAt, id])
   @@map("payment_intents")
 }
 

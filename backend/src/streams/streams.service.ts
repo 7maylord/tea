@@ -30,6 +30,7 @@ import {
   type Hex,
 } from 'viem';
 import { FundsService } from '../funds/funds.service';
+import { upsertThread } from '../payments/thread';
 import { SessionService } from '../identity/session.service';
 
 const streamAbi = parseAbi([
@@ -247,10 +248,17 @@ export class StreamsService implements OnModuleDestroy {
             'Insufficient available funds',
           );
         }
+        const thread = await upsertThread(
+          tx,
+          balance.chainId,
+          sender.id,
+          recipient.userId,
+        );
         return tx.paymentIntent.create({
           data: {
             payerId: sender.id,
             recipientUserId: recipient.userId,
+            threadId: thread.id,
             chainId: balance.chainId,
             tokenAddress: balance.token.toLowerCase(),
             payerAddress: sender.account.address,
@@ -474,6 +482,12 @@ export class StreamsService implements OnModuleDestroy {
         },
       }),
     ]);
+    if (observed.state === 'CONFIRMED' && intent.threadId) {
+      await this.db.thread.update({
+        where: { id: intent.threadId },
+        data: { lastActivityAt: new Date() },
+      });
+    }
     return {
       ...this.present(nextIntent, nextAttempt),
       chainState:
@@ -630,6 +644,12 @@ export class StreamsService implements OnModuleDestroy {
             streamId: observed.streamId?.toString() ?? null,
           },
         });
+        if (observed.state === 'CONFIRMED' && intent.threadId) {
+          await tx.thread.update({
+            where: { id: intent.threadId },
+            data: { lastActivityAt: new Date() },
+          });
+        }
         return { intent: updated, attempt };
       });
       return this.present(saved.intent, saved.attempt);

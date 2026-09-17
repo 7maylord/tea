@@ -109,6 +109,9 @@ describe('stream creation (Postgres and Anvil)', () => {
       where: { intent: { payerId: senderId } },
     });
     await db.paymentIntent.deleteMany({ where: { payerId: senderId } });
+    await db.thread.deleteMany({
+      where: { OR: [{ lowerUserId: senderId }, { upperUserId: senderId }] },
+    });
     await db.user.deleteMany({
       where: { id: { in: [senderId, recipientId] } },
     });

@@ -32,6 +32,7 @@ describe('direct payment intents (Postgres and Anvil)', () => {
   const db = new PrismaClient();
   let payerId: string;
   let recipientId: string;
+  let strangerId: string;
   let mintHash: Hex;
   let oldTransferHash: Hex;
 
@@ -48,13 +49,21 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     });
     payerId = payer.id;
     recipientId = recipient.id;
+    strangerId = (
+      await db.user.create({ data: { privyDid: `did:privy:${randomUUID()}` } })
+    ).id;
 
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SessionService)
       .useValue({
         sync: jest.fn((token: string) =>
           Promise.resolve({
-            id: token === 'other' ? recipientId : payerId,
+            id:
+              token === 'other'
+                ? recipientId
+                : token === 'stranger'
+                  ? strangerId
+                  : payerId,
             handle: payer.handle,
             account: { chainId: 31337, address: payerAddress },
           }),
@@ -108,7 +117,12 @@ describe('direct payment intents (Postgres and Anvil)', () => {
   afterAll(async () => {
     await db.transactionAttempt.deleteMany({ where: { intent: { payerId } } });
     await db.paymentIntent.deleteMany({ where: { payerId } });
-    await db.user.deleteMany({ where: { id: { in: [payerId, recipientId] } } });
+    await db.thread.deleteMany({
+      where: { OR: [{ lowerUserId: payerId }, { upperUserId: payerId }] },
+    });
+    await db.user.deleteMany({
+      where: { id: { in: [payerId, recipientId, strangerId] } },
+    });
     await db.$disconnect();
     await app.close();
   });
@@ -218,6 +232,11 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     expect(
       (incomingBeforeConfirmation.body as { items: unknown[] }).items,
     ).toEqual([]);
+    const hiddenThread = await request(app.getHttpServer())
+      .get('/v1/threads')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect((hiddenThread.body as { items: unknown[] }).items).toEqual([]);
 
     await request(app.getHttpServer())
       .post(`/v1/payments/${intent.id}/submission`)
@@ -314,6 +333,23 @@ describe('direct payment intents (Postgres and Anvil)', () => {
         txHash: transferHash.toLowerCase(),
       }),
     ]);
+    const threads = await request(app.getHttpServer())
+      .get('/v1/threads')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    const threadId = (threads.body as { items: { id: string }[] }).items[0].id;
+    expect((threads.body as { items: unknown[] }).items).toHaveLength(1);
+    const thread = await request(app.getHttpServer())
+      .get(`/v1/threads/${threadId}`)
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect(
+      (thread.body as { activity: { items: { id: string }[] } }).activity.items,
+    ).toEqual([expect.objectContaining({ id: intent.id })]);
+    await request(app.getHttpServer())
+      .get(`/v1/threads/${threadId}`)
+      .set('privy-id-token', 'stranger')
+      .expect(404);
     if (process.env.ENVIO_GRAPHQL_URL) {
       let receipt: { id: string; txHash: string } | null = null;
       for (let attempt = 0; attempt < 20 && !receipt; attempt++) {

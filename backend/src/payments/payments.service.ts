@@ -29,6 +29,10 @@ import {
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
 import { matchIndexedReceipt, type IndexedEvent } from './indexed-receipt';
+import { upsertThread } from './thread';
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 @Injectable()
 export class PaymentsService implements OnModuleDestroy {
@@ -85,19 +89,23 @@ export class PaymentsService implements OnModuleDestroy {
   async activity(identityToken: string | undefined, cursor?: string) {
     if (!identityToken)
       throw new UnauthorizedException('Identity token required');
-    if (
-      cursor !== undefined &&
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-        cursor,
-      )
-    ) {
+    const user = await this.sessions.sync(identityToken);
+    return this.activityForUser(user.id, cursor);
+  }
+
+  private async activityForUser(
+    userId: string,
+    cursor?: string,
+    threadId?: string,
+  ) {
+    if (cursor !== undefined && !uuidPattern.test(cursor)) {
       throw new BadRequestException('Invalid activity cursor');
     }
-    const user = await this.sessions.sync(identityToken);
     const where: Prisma.PaymentIntentWhereInput = {
+      ...(threadId ? { threadId } : {}),
       OR: [
-        { payerId: user.id },
-        { recipientUserId: user.id, state: 'CONFIRMED' },
+        { payerId: userId },
+        { recipientUserId: userId, state: 'CONFIRMED' },
       ],
     };
     if (cursor) {
@@ -129,7 +137,7 @@ export class PaymentsService implements OnModuleDestroy {
         .flatMap((intent) => intent.attempts.map((attempt) => attempt.txHash)),
     );
     const items = visible.map((intent) => {
-      const outgoing = intent.payerId === user.id;
+      const outgoing = intent.payerId === userId;
       return {
         id: intent.id,
         kind: intent.kind,
@@ -160,6 +168,106 @@ export class PaymentsService implements OnModuleDestroy {
         rows.length > this.activityPageSize
           ? items[this.activityPageSize - 1].id
           : null,
+    };
+  }
+
+  async threads(identityToken: string | undefined, cursor?: string) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (cursor !== undefined && !uuidPattern.test(cursor)) {
+      throw new BadRequestException('Invalid thread cursor');
+    }
+    const user = await this.sessions.sync(identityToken);
+    const visible: Prisma.PaymentIntentWhereInput = {
+      OR: [
+        { payerId: user.id },
+        { recipientUserId: user.id, state: 'CONFIRMED' },
+      ],
+    };
+    const where: Prisma.ThreadWhereInput = {
+      OR: [{ lowerUserId: user.id }, { upperUserId: user.id }],
+      payments: { some: visible },
+    };
+    if (cursor) {
+      const found = await this.db.thread.findFirst({
+        where: { ...where, id: cursor },
+        select: { id: true },
+      });
+      if (!found) throw new BadRequestException('Invalid thread cursor');
+    }
+    const rows = await this.db.thread.findMany({
+      where,
+      orderBy: [{ lastActivityAt: 'desc' }, { id: 'desc' }],
+      take: this.activityPageSize + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: {
+        lowerUser: { select: { handle: true } },
+        upperUser: { select: { handle: true } },
+        payments: {
+          where: visible,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: { id: true, kind: true, state: true, createdAt: true },
+        },
+      },
+    });
+    const items = rows.slice(0, this.activityPageSize).map((thread) => ({
+      id: thread.id,
+      chainId: thread.chainId,
+      counterpartyHandle:
+        thread.lowerUserId === user.id
+          ? thread.upperUser.handle
+          : thread.lowerUser.handle,
+      lastActivityAt: thread.lastActivityAt.toISOString(),
+      latestPayment: thread.payments[0] ?? null,
+    }));
+    return {
+      items,
+      nextCursor:
+        rows.length > this.activityPageSize
+          ? items[this.activityPageSize - 1].id
+          : null,
+    };
+  }
+
+  async threadDetail(
+    identityToken: string | undefined,
+    id: string,
+    cursor?: string,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!uuidPattern.test(id)) {
+      throw new NotFoundException('Thread not found');
+    }
+    const user = await this.sessions.sync(identityToken);
+    const thread = await this.db.thread.findFirst({
+      where: {
+        id,
+        OR: [{ lowerUserId: user.id }, { upperUserId: user.id }],
+        payments: {
+          some: {
+            OR: [
+              { payerId: user.id },
+              { recipientUserId: user.id, state: 'CONFIRMED' },
+            ],
+          },
+        },
+      },
+      include: {
+        lowerUser: { select: { handle: true } },
+        upperUser: { select: { handle: true } },
+      },
+    });
+    if (!thread) throw new NotFoundException('Thread not found');
+    return {
+      id: thread.id,
+      chainId: thread.chainId,
+      counterpartyHandle:
+        thread.lowerUserId === user.id
+          ? thread.upperUser.handle
+          : thread.lowerUser.handle,
+      activity: await this.activityForUser(user.id, cursor, id),
     };
   }
 
@@ -405,10 +513,17 @@ export class PaymentsService implements OnModuleDestroy {
             'Insufficient available funds',
           );
         }
+        const thread = await upsertThread(
+          tx,
+          balance.chainId,
+          payer.id,
+          recipient.userId,
+        );
         return tx.paymentIntent.create({
           data: {
             payerId: payer.id,
             recipientUserId: recipient.userId,
+            threadId: thread.id,
             chainId: balance.chainId,
             tokenAddress,
             payerAddress: payer.account.address,
@@ -467,6 +582,12 @@ export class PaymentsService implements OnModuleDestroy {
             data: { state: observed.state },
           }),
         ]);
+        if (observed.state === 'CONFIRMED' && intent.threadId) {
+          await tx.thread.update({
+            where: { id: intent.threadId },
+            data: { lastActivityAt: new Date() },
+          });
+        }
         return { nextAttempt, nextIntent };
       });
       return this.present(updated.nextIntent, updated.nextAttempt);
@@ -557,6 +678,12 @@ export class PaymentsService implements OnModuleDestroy {
           where: { id },
           data: { state: observed.state },
         });
+        if (observed.state === 'CONFIRMED' && intent.threadId) {
+          await tx.thread.update({
+            where: { id: intent.threadId },
+            data: { lastActivityAt: new Date() },
+          });
+        }
         return { attempt, intent: updated };
       });
     } catch (error) {
