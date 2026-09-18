@@ -8,6 +8,7 @@ import {
   useUser,
 } from "@privy-io/react-auth";
 import { useEffect, useState, type FormEvent } from "react";
+import Activity from "./activity";
 
 type Session = {
   id: string;
@@ -235,14 +236,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
               </div>
               {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
             </>}
-            {view === 'activity' && <>
-              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your money</p>
-              <h1 className="text-4xl font-semibold tracking-tight">Activity</h1>
-              <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6">
-                <p className="font-semibold">Activity is not available yet.</p>
-                <p className="mt-2 text-sm text-stone-600">This screen does not show your payment history yet.</p>
-              </div>
-            </>}
+            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} />}
             {view === 'profile' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
               <h1 className="text-4xl font-semibold tracking-tight">Profile</h1>
