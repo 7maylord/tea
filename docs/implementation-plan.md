@@ -1,6 +1,6 @@
 # TEA implementation plan
 
-Status: in progress. TeaStream and TeaClaimEscrow pass local Foundry and Anvil tests. The backend verifies direct payments, claims, refunds and stream creation against Anvil; Envio indexes their public events and supplies canonical direct/stream receipts to private activity and threads. The mobile Activity screen now reads those threads with polling. The direct-send, claim and stream client journeys, target-network sponsorship, and Gates A/B live verification remain open.
+Status: in progress. TeaStream and TeaClaimEscrow pass local Foundry and Anvil tests. The backend verifies direct payments, claims, refunds and stream creation against Anvil; Envio indexes their public events and supplies canonical direct/stream receipts to private activity and threads. The mobile Activity screen reads those threads with polling, and Send now prepares, reviews and submits a direct transfer. Live two-user browser verification, the claim and stream client journeys, target-network sponsorship, and Gates A/B live verification remain open.
 
 Based on `TEA.md` v1.0 and the user's instructions to build our own streaming contract, keep NestJS on Express, and install the frontend and backend separately. Those decisions supersede the Sablier requirements in sections 11, 13, 18, 20–23 and 25, the Fastify choice in section 11, and the root pnpm workspace in sections 11–12. All other P0 requirements remain in scope. Dates below are targets; the submission cutoff still needs official verification.
 

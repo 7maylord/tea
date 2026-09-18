@@ -73,6 +73,7 @@ pnpm run dev
 ```
 
 Set `NEXT_PUBLIC_PRIVY_APP_ID` and `NEXT_PUBLIC_API_ORIGIN` in `frontend/.env` (copy `frontend/.env.example` first). The Privy app ID is public; keep `PRIVY_APP_SECRET` only in the backend environment. The API allows the origin in `APP_ORIGIN` for browser requests. Open the frontend at that exact origin, such as `http://127.0.0.1:3000` for the local example.
+Set `NEXT_PUBLIC_CHAIN_ID=31337` for Anvil. The mobile Send screen resolves an exact TEA name, reviews an integer token amount, validates the backend's transfer plan, and submits it through Privy's embedded wallet. On Anvil it uses the local gas supplied by the test faucet; target-network sponsorship remains unverified. The screen retains a submitted hash and idempotency key for status recovery after refresh. If the wallet returns no hash after an uncertain submission, inspect wallet activity before attempting another transfer.
 
 The API defaults to port 3001 and Next.js to port 3000.
 `GET http://127.0.0.1:3001/health/live` checks that the API process is serving requests; it does not test database or queue readiness.

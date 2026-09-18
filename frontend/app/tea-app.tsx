@@ -7,8 +7,9 @@ import {
   usePrivy,
   useUser,
 } from "@privy-io/react-auth";
-import { useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Activity from "./activity";
+import SendFlow from "./send-flow";
 
 type Session = {
   id: string;
@@ -16,6 +17,7 @@ type Session = {
   account: { chainId: number; address: string };
 };
 type Balance = {
+  token: string;
   symbol: string;
   decimals: number;
   balanceUnits: string;
@@ -45,7 +47,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
   const [balanceVersion, setBalanceVersion] = useState(0);
   const [notice, setNotice] = useState('');
-  const [view, setView] = useState<'home' | 'activity' | 'profile'>('home');
+  const [view, setView] = useState<'home' | 'send' | 'activity' | 'profile'>('home');
   const did = user?.id;
   const passkeysAvailable = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
   const hasWallet = user?.linkedAccounts.some(
@@ -55,6 +57,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const hasPasskey = user?.linkedAccounts.some((account) => account.type === 'passkey');
   const session = active && active.did === did ? active.session : null;
   const visibleBalance = balance && balance.ownerId === session?.id ? balance.data : null;
+  const refreshAfterPayment = useCallback(() => setBalanceVersion((value) => value + 1), []);
 
   useEffect(() => {
     if (!ready || !authenticated || !did || !identityToken || !hasWallet) return;
@@ -111,6 +114,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     setBusy(true);
     try {
       await logout();
+      if (session) sessionStorage.removeItem(`tea:payment:${session.id}`);
       setActive(null);
       setHandle('');
       setError('');
@@ -235,7 +239,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
               </div>
               {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
+              <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
             </>}
+            {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
             {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} />}
             {view === 'profile' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
@@ -258,7 +264,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
       <footer className="pb-3 text-sm text-stone-500">Test funds only · Email recovery stays available</footer>
-      {session?.handle && <nav aria-label="Main" className="sticky bottom-0 -mx-5 grid grid-cols-3 gap-2 border-t border-stone-200 bg-[#f6f2e9] px-5 py-2">
+      {session?.handle && view !== 'send' && <nav aria-label="Main" className="sticky bottom-0 -mx-5 grid grid-cols-3 gap-2 border-t border-stone-200 bg-[#f6f2e9] px-5 py-2">
         {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}>{item}</button>)}
       </nav>}
     </main>
