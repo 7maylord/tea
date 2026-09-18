@@ -5,6 +5,7 @@ import {
   createPublicClient,
   erc20Abi,
   http,
+  parseEther,
   type Address,
   type Hex,
 } from 'viem';
@@ -42,7 +43,7 @@ describe('local test funds (Anvil)', () => {
     await app.close();
   });
 
-  it('mints only to the authenticated account and reads confirmed balance', async () => {
+  it('funds only the authenticated account with local token and gas', async () => {
     await request(app.getHttpServer()).get('/v1/balance').expect(401);
     await request(app.getHttpServer()).post('/v1/local/faucet').expect(401);
 
@@ -58,6 +59,12 @@ describe('local test funds (Anvil)', () => {
     expect(first.decimals).toBe(6);
     expect(first.symbol).toBe('TUSD');
     const client = createPublicClient({ transport: http(process.env.RPC_URL) });
+    const gasBefore = await client.getBalance({
+      address: recipient as Address,
+    });
+    const injectedGasBefore = await client.getBalance({
+      address: injectedRecipient,
+    });
     const injectedBefore = await client.readContract({
       address: process.env.SETTLEMENT_TOKEN as Address,
       abi: erc20Abi,
@@ -87,6 +94,12 @@ describe('local test funds (Anvil)', () => {
       timeout: 10000,
     });
     expect(receipt.status).toBe('success');
+    const gasAfter = await client.getBalance({ address: recipient as Address });
+    expect(gasAfter).toBeGreaterThanOrEqual(parseEther('0.01'));
+    expect(gasAfter).toBeGreaterThan(gasBefore);
+    expect(await client.getBalance({ address: injectedRecipient })).toBe(
+      injectedGasBefore,
+    );
 
     const after = await request(app.getHttpServer())
       .get('/v1/balance')

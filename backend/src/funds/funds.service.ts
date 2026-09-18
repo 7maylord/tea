@@ -10,6 +10,7 @@ import {
   erc20Abi,
   http,
   isAddress,
+  parseEther,
   parseAbi,
   type Address,
 } from 'viem';
@@ -148,6 +149,18 @@ export class FundsService {
       });
       const [sender] = await wallet.getAddresses();
       if (!sender) throw new Error('No unlocked local account');
+      if (
+        (await publicClient.getBalance({
+          address: user.account.address as Address,
+        })) < parseEther('0.01')
+      ) {
+        const gasHash = await wallet.sendTransaction({
+          account: sender,
+          to: user.account.address as Address,
+          value: parseEther('0.05'),
+        });
+        await publicClient.waitForTransactionReceipt({ hash: gasHash });
+      }
       const hash = await wallet.writeContract({
         account: sender,
         address: token,
