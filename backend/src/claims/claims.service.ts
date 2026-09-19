@@ -670,6 +670,8 @@ export class ClaimsService implements OnModuleDestroy {
     const { block, onchain } = await this.readOnchainClaim(claim);
     return {
       id: claim.id,
+      chainId: claim.chainId,
+      escrow: claim.escrowAddress,
       payerHandle: claim.payer.handle,
       amountUnits: claim.amountUnits.toString(),
       token: claim.tokenAddress,
