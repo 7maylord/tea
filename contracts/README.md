@@ -1,5 +1,9 @@
 # TEA contracts
 
+The P0 contract package contains exactly two application contracts: `TeaClaimEscrow` for payments to an email that has not joined TEA, and `TeaStream` for fully funded payments over time. A direct send to an existing user calls the configured ERC-20 token's `transfer` function from that user's settlement wallet; TEA does not interpose another contract. This keeps the recipient transfer direct and avoids a second approval or custody layer.
+
+Group split is P1 and is not a pooled smart contract. The specified design is an offchain request ledger: each member's obligation creates a normal direct-payment intent to the organizer, successful transfers remain final, and expiry closes only unpaid requests. Add that backend and UI feature after the P0 release gates pass; it does not add another contract to this package.
+
 `TeaStream` is a fully funded linear stream for one immutable ERC-20 token. The recipient can collect accrued funds; the sender can cancel before the end and recover only the unaccrued portion. It does not support fee-on-transfer or rebasing tokens. An external identity service is not involved in stream withdrawals.
 
 Index `StreamCreated`, `StreamWithdrawn` and `StreamCanceled` by contract address and chain. Each event indexes the stream ID, sender and recipient. Creation records the deposit and start/end timestamps; withdrawals record the amount paid; cancellation records the recipient's frozen entitlement and sender refund. Sum withdrawals by stream ID to reconstruct collected funds. Read the immutable token from `token()`. Use the transaction hash, log index and block hash from the chain log for deduplication and reorg checks; those are not event arguments.
