@@ -114,7 +114,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     setBusy(true);
     try {
       await logout();
-      if (session) sessionStorage.removeItem(`tea:payment:${session.id}`);
+      if (session) {
+        sessionStorage.removeItem(`tea:payment:${session.id}`);
+        sessionStorage.removeItem(`tea:claim:${session.id}`);
+      }
       setActive(null);
       setHandle('');
       setError('');

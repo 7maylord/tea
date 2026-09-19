@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test:plan": "node --experimental-strip-types --test test/payment-plan.test.mjs"
+    "test:plan": "node --experimental-strip-types --test test/*-plan.test.mjs"
   },
   "dependencies": {
     "@privy-io/react-auth": "3.43.0",

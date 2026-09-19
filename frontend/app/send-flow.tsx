@@ -4,10 +4,13 @@ import { getIdentityToken, useSendTransaction } from "@privy-io/react-auth";
 import { formatUnits, parseUnits, type Hex } from "viem";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { checkedTransferPlan, type PaymentIntent } from "./payment-plan";
+import ClaimSend from "./claim-send";
 
 type Balance = { token: string; decimals: number; balanceUnits: string; symbol: string };
 type Pending = { id: string; submitKey: string; hash: Hex | null };
-type Review = { reference: string; handle: string; amountUnits: string };
+type Review =
+  | { kind: "direct"; reference: string; recipient: string; amountUnits: string }
+  | { kind: "claim"; email: string; amountUnits: string };
 
 const button = "min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900";
 
@@ -22,7 +25,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
 }) {
   const { sendTransaction } = useSendTransaction();
   const reconciling = useRef(false);
-  const [handle, setHandle] = useState("");
+  const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
   const [review, setReview] = useState<Review | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -89,7 +92,13 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   async function continueToReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!balance) { setError("Refresh your balance before sending."); return; }
-    if (!/^[a-z0-9_]{3,20}$/.test(handle)) { setError("Enter an exact TEA name."); return; }
+    const entered = recipient.trim();
+    const kind = entered.includes("@") ? "email" : "handle";
+    const value = kind === "handle" ? entered.toLowerCase() : entered;
+    if ((kind === "handle" && !/^[a-z0-9_]{3,20}$/.test(value)) ||
+      (kind === "email" && (value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)))) {
+      setError("Enter an exact TEA name or email address."); return;
+    }
     let units: bigint;
     try { units = parseUnits(amount, balance.decimals); }
     catch { setError("Enter a valid amount."); return; }
@@ -101,17 +110,22 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
     try {
       const result = await authFetch("/v1/resolve", {
         method: "POST",
-        body: JSON.stringify({ kind: "handle", value: handle }),
-      }) as { kind: string; reference: string; recipient: { handle: string } };
-      if (result.kind !== "existing" || result.recipient.handle !== handle) throw new Error("Recipient could not be verified.");
-      setReview({ reference: result.reference, handle, amountUnits: units.toString() });
+        body: JSON.stringify({ kind, value }),
+      }) as { kind: string; reference?: string; recipient?: { handle: string | null } };
+      if (result.kind === "unregistered" && kind === "email") {
+        setReview({ kind: "claim", email: value, amountUnits: units.toString() });
+      } else if (result.kind === "existing" && result.reference) {
+        setReview({ kind: "direct", reference: result.reference,
+          recipient: result.recipient?.handle ? `@${result.recipient.handle}` : value,
+          amountUnits: units.toString() });
+      } else throw new Error("Recipient could not be verified.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Recipient could not be verified.");
     } finally { setBusy(false); }
   }
 
   async function submit() {
-    if (!review || !balance || busy) return;
+    if (!review || review.kind !== "direct" || !balance || busy) return;
     setBusy(true);
     setError("");
     try {
@@ -138,12 +152,14 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   }
 
   return <>
+    {review?.kind === "claim" ? <ClaimSend apiOrigin={apiOrigin} userId={userId} email={review.email} amountUnits={review.amountUnits} address={address} chainId={chainId} balance={balance!} onBack={() => setReview(null)} onSettled={onSettled} /> : <>
     <button type="button" onClick={onBack} className="mb-5 self-start text-sm font-semibold text-orange-700">← Back</button>
     <h1 className="text-4xl font-semibold tracking-tight">Send money</h1>
     {done ? <div className="mt-8 rounded-2xl bg-emerald-50 p-5"><p className="font-semibold text-emerald-900">Payment confirmed.</p><button type="button" onClick={onBack} className={`${button} mt-5`}>Done</button></div>
       : pending ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="font-semibold">{pending.hash ? "Checking your payment" : "Wallet submission is uncertain"}</p><p className="mt-2 text-sm text-stone-600">{pending.hash ? "Your transaction is saved. You can leave this screen; it will be checked when you return." : "Do not send again until you have checked whether your wallet submitted the transaction."}</p>{pending.hash && <button type="button" onClick={() => void reconcile(pending)} className="mt-5 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold">Check status</button>}</div>
-      : review ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="text-sm text-stone-500">To</p><p className="mt-1 text-xl font-semibold">@{review.handle}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} {balance?.symbol}</p><p className="mt-5 text-sm text-stone-600">Review the wallet confirmation before signing.</p><button type="button" disabled={busy} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : "Confirm and send"}</button><button type="button" disabled={busy} onClick={() => setReview(null)} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button></div>
-      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={handle} onChange={(event) => setHandle(event.target.value.toLowerCase())} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" /><p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
+      : review ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="text-sm text-stone-500">To</p><p className="mt-1 text-xl font-semibold">{review.recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} {balance?.symbol}</p><p className="mt-5 text-sm text-stone-600">Review the wallet confirmation before signing.</p><button type="button" disabled={busy} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : "Confirm and send"}</button><button type="button" disabled={busy} onClick={() => setReview(null)} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button></div>
+      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" /><p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    </>}
   </>;
 }
