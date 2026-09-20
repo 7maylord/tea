@@ -82,10 +82,11 @@ model PaymentIntent {
   streamAddress          String?              @db.VarChar(42)
   durationSeconds        BigInt?              @db.BigInt
   streamId               Decimal?             @db.Decimal(78, 0)
+  claimId                String?              @unique @db.Char(66)
   preparedAtBlock        BigInt?              @db.BigInt
   kind                   String               @db.VarChar(16)
   state                  String               @db.VarChar(32)
-  idempotencyKey         String               @db.VarChar(128)
+  idempotencyKey         String?              @db.VarChar(128)
   requestHash            String               @db.Char(64)
   authorizationExpiresAt DateTime             @db.Timestamptz(6)
   createdAt              DateTime             @default(now()) @db.Timestamptz(6)
@@ -93,6 +94,7 @@ model PaymentIntent {
   payer                  User                 @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
   recipient              User?                @relation("IncomingPayments", fields: [recipientUserId], references: [id], onDelete: Restrict)
   thread                 Thread?              @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  claim                  Claim?               @relation(fields: [claimId], references: [id], onDelete: Restrict)
   attempts               TransactionAttempt[]
 
   @@unique([payerId, idempotencyKey])
@@ -152,6 +154,7 @@ model Claim {
   payer                  User                 @relation("OutgoingClaims", fields: [payerId], references: [id], onDelete: Restrict)
   authorizations         ClaimAuthorization[]
   outboxJobs             OutboxJob[]
+  receipt                PaymentIntent?
 
   @@unique([payerId, idempotencyKey])
   @@unique([chainId, escrowAddress, depositTxHash])

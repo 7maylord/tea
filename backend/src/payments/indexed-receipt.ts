@@ -11,6 +11,7 @@ export type IndexedEvent = {
   toAddress: string | null;
   amountUnits: string | null;
   streamId: string | null;
+  claimId: string | null;
 };
 
 export function matchIndexedReceipt(
@@ -23,6 +24,8 @@ export function matchIndexedReceipt(
     recipientAddress: string;
     amountUnits: { toString(): string };
     streamId: { toString(): string } | null;
+    claimId: string | null;
+    claim?: { escrowAddress: string } | null;
   },
   attempt:
     | {
@@ -34,10 +37,19 @@ export function matchIndexedReceipt(
   events: IndexedEvent[],
 ) {
   if (!attempt?.blockHash || attempt.blockNumber === null) return null;
-  if (intent.kind !== 'DIRECT' && intent.kind !== 'STREAM') return null;
-  const eventType = intent.kind === 'DIRECT' ? 'TRANSFER' : 'STREAM_CREATED';
+  if (!['DIRECT', 'STREAM', 'CLAIM'].includes(intent.kind)) return null;
+  const eventType =
+    intent.kind === 'DIRECT'
+      ? 'TRANSFER'
+      : intent.kind === 'STREAM'
+        ? 'STREAM_CREATED'
+        : 'CLAIM_PAID';
   const contract =
-    intent.kind === 'DIRECT' ? intent.tokenAddress : intent.streamAddress;
+    intent.kind === 'DIRECT'
+      ? intent.tokenAddress
+      : intent.kind === 'STREAM'
+        ? intent.streamAddress
+        : intent.claim?.escrowAddress;
   const match = events.find(
     (event) =>
       event.chainId === intent.chainId &&
@@ -51,7 +63,8 @@ export function matchIndexedReceipt(
       event.toAddress === intent.recipientAddress &&
       event.amountUnits === intent.amountUnits.toString() &&
       (intent.kind !== 'STREAM' ||
-        event.streamId === intent.streamId?.toString()),
+        event.streamId === intent.streamId?.toString()) &&
+      (intent.kind !== 'CLAIM' || event.claimId === intent.claimId),
   );
   return match
     ? {

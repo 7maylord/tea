@@ -65,7 +65,7 @@ export class PaymentsService implements OnModuleDestroy {
           query: `query($hashes: [String!]!) {
             ChainEvent(where: {txHash: {_in: $hashes}}, limit: 100) {
               id chainId txHash logIndex blockNumber blockHash contractAddress
-              eventType fromAddress toAddress amountUnits streamId
+              eventType fromAddress toAddress amountUnits streamId claimId
             }
           }`,
           variables: { hashes },
@@ -128,6 +128,7 @@ export class PaymentsService implements OnModuleDestroy {
           take: 1,
           select: { txHash: true, blockNumber: true, blockHash: true },
         },
+        claim: { select: { escrowAddress: true } },
       },
     });
     const visible = rows.slice(0, this.activityPageSize);

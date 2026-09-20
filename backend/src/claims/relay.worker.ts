@@ -1,16 +1,24 @@
-import { PrismaClient } from '@prisma/client';
+import {
+  Claim,
+  ClaimAuthorization,
+  OutboxJob,
+  PrismaClient,
+} from '@prisma/client';
+import { createHash } from 'node:crypto';
 import {
   createPublicClient,
   createWalletClient,
   defineChain,
   http,
   parseAbi,
+  parseAbiItem,
   toHex,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { upsertThread } from '../payments/thread';
 
 const escrowAbi = parseAbi([
   'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
@@ -18,6 +26,114 @@ const escrowAbi = parseAbi([
   'function signerEpoch() view returns (uint64)',
   'function claim((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization, bytes identitySignature, bytes recipientSignature)',
 ]);
+const claimPaidEvent = parseAbiItem(
+  'event ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, uint256 amount)',
+);
+
+async function recordClaimPayment(
+  db: PrismaClient,
+  claim: Claim,
+  authorization: ClaimAuthorization,
+  job: OutboxJob,
+  receipt: { transactionHash: Hex; blockNumber: bigint; blockHash: Hex },
+) {
+  const recipient = await db.account.findUnique({
+    where: {
+      chainId_settlementAddress: {
+        chainId: claim.chainId,
+        settlementAddress: authorization.recipientAddress,
+      },
+    },
+  });
+  if (!recipient) throw new Error('Claim recipient account unavailable');
+  const requestHash = createHash('sha256')
+    .update(`claim-receipt:${claim.id}`)
+    .digest('hex');
+  await db.$transaction(async (tx) => {
+    const thread = await upsertThread(
+      tx,
+      claim.chainId,
+      claim.payerId,
+      recipient.userId,
+    );
+    const payment = await tx.paymentIntent.upsert({
+      where: { claimId: claim.id },
+      create: {
+        claimId: claim.id,
+        payerId: claim.payerId,
+        recipientUserId: recipient.userId,
+        threadId: thread.id,
+        chainId: claim.chainId,
+        tokenAddress: claim.tokenAddress,
+        payerAddress: claim.payerAddress,
+        recipientAddress: authorization.recipientAddress,
+        amountUnits: claim.amountUnits,
+        preparedAtBlock: claim.depositBlockNumber,
+        kind: 'CLAIM',
+        state: 'CONFIRMED',
+        idempotencyKey: null,
+        requestHash,
+        authorizationExpiresAt: authorization.deadline,
+      },
+      update: { state: 'CONFIRMED', threadId: thread.id },
+    });
+    const existingAttempt = await tx.transactionAttempt.findUnique({
+      where: {
+        chainId_txHash: {
+          chainId: claim.chainId,
+          txHash: receipt.transactionHash,
+        },
+      },
+    });
+    if (existingAttempt && existingAttempt.intentId !== payment.id) {
+      throw new Error('Claim transaction already belongs to another payment');
+    }
+    if (existingAttempt) {
+      await tx.transactionAttempt.update({
+        where: { id: existingAttempt.id },
+        data: {
+          state: 'CONFIRMED',
+          confirmedAt: new Date(),
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+        },
+      });
+    } else {
+      await tx.transactionAttempt.create({
+        data: {
+          intentId: payment.id,
+          operationIndex: 0,
+          chainId: claim.chainId,
+          txHash: receipt.transactionHash,
+          state: 'CONFIRMED',
+          idempotencyKey: `claim-receipt:${claim.id}`,
+          requestHash,
+          confirmedAt: new Date(),
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+        },
+      });
+    }
+    await Promise.all([
+      tx.thread.update({
+        where: { id: thread.id },
+        data: { lastActivityAt: new Date() },
+      }),
+      tx.claim.update({
+        where: { id: claim.id },
+        data: { state: 'CLAIMED' },
+      }),
+      tx.claimAuthorization.update({
+        where: { id: authorization.id },
+        data: { state: 'CONSUMED' },
+      }),
+      tx.outboxJob.update({
+        where: { id: job.id },
+        data: { state: 'SENT', leaseUntil: null },
+      }),
+    ]);
+  });
+}
 
 export async function processNextClaimRelay(
   db: PrismaClient,
@@ -83,20 +199,52 @@ export async function processNextClaimRelay(
       onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0)
     )
       throw new Error('Claim state mismatch');
-    if (onchain[4] === 2 || onchain[4] === 3) {
+    if (onchain[4] === 2) {
+      const payments = await client.getLogs({
+        address: claim.escrowAddress as Address,
+        event: claimPaidEvent,
+        args: { claimId: claim.id as Hex },
+        fromBlock: claim.depositBlockNumber ?? block.number,
+        toBlock: block.number,
+      });
+      const payment = payments.find(
+        (event) =>
+          event.args.payer?.toLowerCase() === claim.payerAddress &&
+          event.args.recipient?.toLowerCase() ===
+            authorization.recipientAddress &&
+          event.args.amount === BigInt(claim.amountUnits.toString()) &&
+          event.transactionHash &&
+          event.blockNumber !== null &&
+          event.blockHash,
+      );
+      if (
+        !payment?.transactionHash ||
+        payment.blockNumber === null ||
+        !payment.blockHash
+      ) {
+        throw new Error('Claim payment receipt unavailable');
+      }
+      await recordClaimPayment(db, claim, authorization, job, {
+        transactionHash: payment.transactionHash,
+        blockNumber: payment.blockNumber,
+        blockHash: payment.blockHash,
+      });
+      return true;
+    }
+    if (onchain[4] === 3) {
       await db.$transaction([
         db.claim.update({
           where: { id: claim.id },
-          data: { state: onchain[4] === 2 ? 'CLAIMED' : 'REFUNDED' },
+          data: { state: 'REFUNDED' },
         }),
         db.claimAuthorization.update({
           where: { id: authorization.id },
-          data: { state: onchain[4] === 2 ? 'CONSUMED' : 'CANCELED' },
+          data: { state: 'CANCELED' },
         }),
         db.outboxJob.update({
           where: { id: job.id },
           data: {
-            state: onchain[4] === 2 ? 'SENT' : 'CANCELED',
+            state: 'CANCELED',
             leaseUntil: null,
           },
         }),

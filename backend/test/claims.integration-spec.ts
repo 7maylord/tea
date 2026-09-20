@@ -69,6 +69,13 @@ describe('claim preparation (Postgres and Anvil)', () => {
     });
     payerId = payer.id;
     otherId = other.id;
+    await db.account.create({
+      data: {
+        userId: otherId,
+        chainId: 31337,
+        settlementAddress: recipientAddress,
+      },
+    });
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(SessionService)
       .useValue({
@@ -122,9 +129,13 @@ describe('claim preparation (Postgres and Anvil)', () => {
     await db.identity.deleteMany({ where: { userId: otherId } });
     await db.claimAuthorization.deleteMany({ where: { claim: { payerId } } });
     await db.outboxJob.deleteMany({ where: { claim: { payerId } } });
-    await db.claim.deleteMany({ where: { payerId } });
     await db.transactionAttempt.deleteMany({ where: { intent: { payerId } } });
     await db.paymentIntent.deleteMany({ where: { payerId } });
+    await db.claim.deleteMany({ where: { payerId } });
+    await db.thread.deleteMany({
+      where: { OR: [{ lowerUserId: payerId }, { upperUserId: payerId }] },
+    });
+    await db.account.deleteMany({ where: { userId: otherId } });
     await db.user.deleteMany({ where: { id: { in: [payerId, otherId] } } });
     await db.$disconnect();
     await app.close();
@@ -546,6 +557,52 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .set('privy-id-token', 'payer')
       .expect(200);
     expect((payerView.body as { state: string }).state).toBe('CLAIMED');
+    const payerActivity = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((payerActivity.body as { items: unknown[] }).items).toContainEqual(
+      expect.objectContaining({
+        kind: 'CLAIM',
+        direction: 'OUTGOING',
+        state: 'CONFIRMED',
+        txHash: claimHash,
+      }),
+    );
+    const recipientActivity = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect(
+      (recipientActivity.body as { items: unknown[] }).items,
+    ).toContainEqual(
+      expect.objectContaining({
+        kind: 'CLAIM',
+        direction: 'INCOMING',
+        state: 'CONFIRMED',
+        txHash: claimHash,
+      }),
+    );
+    if (process.env.ENVIO_GRAPHQL_URL) {
+      let receipt: { txHash: string } | null = null;
+      for (let attempt = 0; attempt < 20 && !receipt; attempt++) {
+        const activity = await request(app.getHttpServer())
+          .get('/v1/activity')
+          .set('privy-id-token', 'other')
+          .expect(200);
+        receipt =
+          (
+            activity.body as {
+              items: {
+                kind: string;
+                indexedReceipt: { txHash: string } | null;
+              }[];
+            }
+          ).items.find((item) => item.kind === 'CLAIM')?.indexedReceipt ?? null;
+        if (!receipt) await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      expect(receipt?.txHash).toBe(claimHash);
+    }
     await request(app.getHttpServer())
       .post(`/v1/claims/${claim.id}/authorize`)
       .set('privy-id-token', 'other')
