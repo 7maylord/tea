@@ -5,7 +5,8 @@ import { createPublicClient, custom, formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { checkedStreamPlan, type StreamIntent } from "./stream-plan";
 
-type Saved = { id: string; recipientAddress: string; reference: string; amountUnits: string; durationSeconds: string; submitKey: string; stage: "APPROVAL_SUBMITTED" | "READY_CREATE" | "CREATE_REQUESTED" | "CREATE_SUBMITTED"; approvalHash?: Hex; createHash?: Hex };
+type Saved = { id: string; recipientAddress: string; reference: string; amountUnits: string; durationSeconds: string; submitKey: string; stage: "APPROVAL_REQUESTED" | "APPROVAL_SUBMITTED" | "READY_CREATE" | "CREATE_REQUESTED" | "CREATE_SUBMITTED"; approvalHash?: Hex; createHash?: Hex };
+type StreamDraft = { createKey: string; reference: string; amountUnits: string; durationSeconds: string };
 const button = "min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50";
 
 export default function StreamSend({ apiOrigin, userId, reference, recipient, amountUnits, durationSeconds, address, chainId, token, decimals, symbol, onBack, onSettled }: {
@@ -16,8 +17,10 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   const { sendTransaction } = useSendTransaction();
   const { wallets } = useWallets();
   const [saved, setSaved] = useState<Saved | null>(null);
+  const [draft, setDraft] = useState<StreamDraft | null>(null);
   const [busy, setBusy] = useState(false), [done, setDone] = useState(false), [error, setError] = useState("");
   const storageKey = `tea:stream:${userId}`;
+  const draftKey = `tea:stream-draft:${userId}`;
   const api = useCallback(async (path: string, options: RequestInit = {}) => {
     const identity = await getIdentityToken();
     if (!identity) throw new Error("Your session expired. Sign in again.");
@@ -40,9 +43,12 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
     } catch { setError("The stream was submitted. Confirmation is still being checked."); }
   }, [api, onSettled, storageKey]);
   useEffect(() => {
-    const initial = window.setTimeout(() => { try { const record = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Saved | null; if (record?.id && record.reference === reference && record.amountUnits === amountUnits && record.durationSeconds === durationSeconds) setSaved(record); } catch { /* Ignore broken local recovery data. */ } }, 0);
+    const initial = window.setTimeout(() => {
+      try { const record = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Saved | null; if (record?.id && record.reference === reference && record.amountUnits === amountUnits && record.durationSeconds === durationSeconds) setSaved(record); } catch { /* Ignore broken local recovery data. */ }
+      try { const record = JSON.parse(sessionStorage.getItem(draftKey) ?? "null") as StreamDraft | null; if (record?.reference === reference && record.amountUnits === amountUnits && record.durationSeconds === durationSeconds && /^[0-9a-f-]{36}$/.test(record.createKey)) setDraft(record); } catch { /* Ignore broken intent recovery data. */ }
+    }, 0);
     return () => window.clearTimeout(initial);
-  }, [amountUnits, durationSeconds, reference, storageKey]);
+  }, [amountUnits, draftKey, durationSeconds, reference, storageKey]);
   useEffect(() => {
     if (!saved) return;
     if (saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash) {
@@ -57,11 +63,15 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   async function approve() {
     setBusy(true); setError("");
     try {
-      const stream = await api("/v1/streams", { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ recipientReference: reference, amountUnits, durationSeconds }) });
+      const request = draft ?? { createKey: crypto.randomUUID(), reference, amountUnits, durationSeconds };
+      if (!draft) { sessionStorage.setItem(draftKey, JSON.stringify(request)); setDraft(request); }
+      const stream = await api("/v1/streams", { method: "POST", headers: { "Idempotency-Key": request.createKey }, body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, durationSeconds: request.durationSeconds }) });
       const plan = checkedStreamPlan(stream, address, token, chainId, stream.recipient, amountUnits, durationSeconds);
+      const record: Saved = { id: stream.id, recipientAddress: stream.recipient, reference, amountUnits, durationSeconds, submitKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
+      save(record); sessionStorage.removeItem(draftKey); setDraft(null);
       const sent = await sendTransaction({ to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, { address, sponsor: chainId !== 31337 });
-      const record: Saved = { id: stream.id, recipientAddress: stream.recipient, reference, amountUnits, durationSeconds, submitKey: crypto.randomUUID(), stage: "APPROVAL_SUBMITTED", approvalHash: sent.hash };
-      save(record); await waitFor(sent.hash); save({ ...record, stage: "READY_CREATE" });
+      const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
+      save(submitted); await waitFor(sent.hash); save({ ...submitted, stage: "READY_CREATE" });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not approve stream funding."); }
     finally { setBusy(false); }
   }
@@ -78,5 +88,5 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create the stream."); }
     finally { setBusy(false); }
   }
-  return <><button type="button" onClick={onBack} className="mb-5 text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit stream"}</button><h1 className="text-4xl font-semibold tracking-tight">Pay over time</h1><div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">Recipient</p><p className="mt-1 font-semibold">{recipient}</p><p className="mt-5 text-sm text-stone-500">Funded upfront</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), decimals)} {symbol}</p><p className="mt-5 text-sm leading-6 text-stone-600">Streams evenly over {Number(durationSeconds) < 3600 ? `${Number(durationSeconds) / 60} minutes` : `${Number(durationSeconds) / 3600} hours`}. The recipient collects accrued funds. You can stop future accrual and recover only the unaccrued amount.</p>{done ? <p className="mt-6 font-semibold text-emerald-800">Stream confirmed.</p> : !saved ? <button type="button" disabled={busy} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : "Approve stream funding"}</button> : saved.stage === "READY_CREATE" ? <button type="button" disabled={busy} onClick={() => void create()} className={`${button} mt-7 w-full`}>{busy ? "Creating…" : "Create funded stream"}</button> : saved.stage === "CREATE_REQUESTED" ? <p className="mt-6 text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p> : <p role="status" className="mt-6 text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking stream confirmation…"}</p>}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}</>;
+  return <><button type="button" onClick={onBack} className="mb-5 text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit stream"}</button><h1 className="text-4xl font-semibold tracking-tight">Pay over time</h1><div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">Recipient</p><p className="mt-1 font-semibold">{recipient}</p><p className="mt-5 text-sm text-stone-500">Funded upfront</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), decimals)} {symbol}</p><p className="mt-5 text-sm leading-6 text-stone-600">Streams evenly over {Number(durationSeconds) < 3600 ? `${Number(durationSeconds) / 60} minutes` : `${Number(durationSeconds) / 3600} hours`}. The recipient collects accrued funds. You can stop future accrual and recover only the unaccrued amount.</p>{done ? <p className="mt-6 font-semibold text-emerald-800">Stream confirmed.</p> : !saved ? <button type="button" disabled={busy} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve stream funding"}</button> : saved.stage === "READY_CREATE" ? <button type="button" disabled={busy} onClick={() => void create()} className={`${button} mt-7 w-full`}>{busy ? "Creating…" : "Create funded stream"}</button> : saved.stage === "APPROVAL_REQUESTED" || saved.stage === "CREATE_REQUESTED" ? <p className="mt-6 text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p> : <p role="status" className="mt-6 text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking stream confirmation…"}</p>}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}</>;
 }

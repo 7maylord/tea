@@ -116,8 +116,12 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       await logout();
       if (session) {
         sessionStorage.removeItem(`tea:payment:${session.id}`);
+        sessionStorage.removeItem(`tea:payment-draft:${session.id}`);
         sessionStorage.removeItem(`tea:claim:${session.id}`);
+        sessionStorage.removeItem(`tea:claim-draft:${session.id}`);
         sessionStorage.removeItem(`tea:stream:${session.id}`);
+        sessionStorage.removeItem(`tea:stream-draft:${session.id}`);
+        sessionStorage.removeItem(`tea:send-review:${session.id}`);
       }
       setActive(null);
       setHandle('');
