@@ -325,6 +325,38 @@ describe('claim preparation (Postgres and Anvil)', () => {
           })
         ).state,
       ).toBe('SENT');
+      await request(app.getHttpServer())
+        .post(`/v1/claims/${claim.id}/resend`)
+        .set('Idempotency-Key', 'resend-one')
+        .expect(401);
+      await request(app.getHttpServer())
+        .post(`/v1/claims/${claim.id}/resend`)
+        .set('privy-id-token', 'other')
+        .set('Idempotency-Key', 'resend-one')
+        .expect(404);
+      const resend = await request(app.getHttpServer())
+        .post(`/v1/claims/${claim.id}/resend`)
+        .set('privy-id-token', 'payer')
+        .set('Idempotency-Key', 'resend-one')
+        .expect(201);
+      expect((resend.body as { state: string }).state).toBe('PENDING');
+      await request(app.getHttpServer())
+        .post(`/v1/claims/${claim.id}/resend`)
+        .set('privy-id-token', 'payer')
+        .set('Idempotency-Key', 'resend-one')
+        .expect(201);
+      await request(app.getHttpServer())
+        .post(`/v1/claims/${claim.id}/resend`)
+        .set('privy-id-token', 'payer')
+        .set('Idempotency-Key', 'resend-two')
+        .expect(429);
+      expect(await processNextClaimInvite(db)).toBe(true);
+      expect(await processNextClaimInvite(db)).toBe(false);
+      expect(
+        fetchMock.mock.calls.filter(
+          ([input]) => input === 'https://api.resend.com/emails',
+        ),
+      ).toHaveLength(2);
     } finally {
       fetchMock.mockRestore();
       if (previousEmailKey === undefined) delete process.env.EMAIL_PROVIDER_KEY;

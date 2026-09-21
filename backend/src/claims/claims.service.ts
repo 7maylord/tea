@@ -1119,4 +1119,67 @@ export class ClaimsService implements OnModuleDestroy {
     });
     return { id, state: 'QUEUED' };
   }
+
+  async resendInvite(
+    identityToken: string | undefined,
+    id: string,
+    idempotencyKey: string | undefined,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
+    if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('Invalid Idempotency-Key');
+    }
+    const payer = await this.sessions.sync(identityToken);
+    const claim = await this.db.claim.findFirst({
+      where: { id, payerId: payer.id },
+    });
+    if (!claim) throw new NotFoundException();
+    const { block, onchain } = await this.readOnchainClaim(claim);
+    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+      throw new ConflictException('Claim invitation is no longer active');
+    }
+    const keyHash = createHash('sha256').update(idempotencyKey).digest('hex');
+    const dedupeKey = `resend:${id}:${keyHash.slice(0, 32)}`;
+    return this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "claims" WHERE "id" = ${id} FOR UPDATE`;
+      const replay = await tx.outboxJob.findUnique({ where: { dedupeKey } });
+      if (replay) return { id, state: replay.state };
+      const original = await tx.outboxJob.findUnique({
+        where: { dedupeKey: `claim-invite:${id}` },
+      });
+      if (!original) throw new ConflictException('Invitation is not ready');
+      if (original.state !== 'SENT') return { id, state: original.state };
+      const since = new Date(Date.now() - 86_400_000);
+      const resends = await tx.outboxJob.findMany({
+        where: {
+          claimId: id,
+          kind: 'CLAIM_INVITE',
+          dedupeKey: { startsWith: `resend:${id}:` },
+          createdAt: { gte: since },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      });
+      if (
+        resends.length >= 5 ||
+        (resends[0] && resends[0].createdAt.getTime() > Date.now() - 60_000)
+      ) {
+        throw new HttpException(
+          'Invitation resend limit reached',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      await tx.outboxJob.create({
+        data: {
+          claimId: id,
+          kind: 'CLAIM_INVITE',
+          dedupeKey,
+          state: 'PENDING',
+        },
+      });
+      return { id, state: 'PENDING' };
+    });
+  }
 }

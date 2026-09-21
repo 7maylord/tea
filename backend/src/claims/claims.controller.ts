@@ -68,4 +68,13 @@ export class ClaimsController {
   ) {
     return this.claims.requestRefund(token, id, key);
   }
+
+  @Post(':id/resend')
+  resend(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+  ) {
+    return this.claims.resendInvite(token, id, key);
+  }
 }
