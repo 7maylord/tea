@@ -6,6 +6,7 @@ import {
   erc20Abi,
   http,
   parseAbi,
+  parseAbiItem,
   parseEventLogs,
   TransactionReceiptNotFoundError,
   type Address,
@@ -18,6 +19,9 @@ const escrowAbi = parseAbi([
   'function refund(bytes32 claimId)',
   'event ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)',
 ]);
+const claimRefundedEvent = parseAbiItem(
+  'event ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)',
+);
 
 export async function processNextClaimRefund(
   db: PrismaClient,
@@ -75,24 +79,101 @@ export async function processNextClaimRefund(
     )
       throw new Error('Claim state mismatch');
 
-    if (onchain[4] === 2 || onchain[4] === 3) {
+    if (onchain[4] === 2) {
       await db.$transaction([
         db.outboxJob.update({
           where: { id: job.id },
           data: {
-            state: onchain[4] === 3 ? 'SENT' : 'CANCELED',
+            state: 'CANCELED',
             leaseUntil: null,
           },
         }),
         db.claim.update({
           where: { id: claim.id },
-          data: { state: onchain[4] === 3 ? 'REFUNDED' : 'CLAIMED' },
+          data: { state: 'CLAIMED' },
         }),
         db.paymentIntent.updateMany({
           where: { claimId: claim.id },
-          data: { state: onchain[4] === 3 ? 'REFUNDED' : 'CONFIRMED' },
+          data: { state: 'CONFIRMED' },
         }),
       ]);
+      return true;
+    }
+    if (onchain[4] === 3) {
+      const refunds = await client.getLogs({
+        address: claim.escrowAddress as Address,
+        event: claimRefundedEvent,
+        args: { claimId: claim.id as Hex },
+        fromBlock: claim.depositBlockNumber ?? block.number,
+        toBlock: block.number,
+      });
+      const refund = refunds.find(
+        (event) =>
+          event.args.payer?.toLowerCase() === claim.payerAddress &&
+          event.args.amount === BigInt(claim.amountUnits.toString()) &&
+          event.transactionHash &&
+          event.blockNumber !== null &&
+          event.blockHash,
+      );
+      if (
+        !refund?.transactionHash ||
+        refund.blockNumber === null ||
+        !refund.blockHash
+      ) {
+        throw new Error('Claim refund receipt unavailable');
+      }
+      await db.$transaction(async (tx) => {
+        const payment = await tx.paymentIntent.findUnique({
+          where: { claimId: claim.id },
+        });
+        if (payment) {
+          const existing = await tx.transactionAttempt.findUnique({
+            where: {
+              chainId_txHash: {
+                chainId: claim.chainId,
+                txHash: refund.transactionHash,
+              },
+            },
+          });
+          if (existing && existing.intentId !== payment.id) {
+            throw new Error('Claim refund already belongs to another payment');
+          }
+          if (!existing) {
+            await tx.transactionAttempt.create({
+              data: {
+                intentId: payment.id,
+                operationIndex: 1,
+                chainId: claim.chainId,
+                txHash: refund.transactionHash,
+                state: 'CONFIRMED',
+                idempotencyKey: `claim-refund:${claim.id}`,
+                requestHash: claim.requestHash,
+                confirmedAt: new Date(),
+                blockNumber: refund.blockNumber,
+                blockHash: refund.blockHash,
+              },
+            });
+          }
+          await tx.paymentIntent.update({
+            where: { id: payment.id },
+            data: { state: 'REFUNDED' },
+          });
+        }
+        await Promise.all([
+          tx.outboxJob.update({
+            where: { id: job.id },
+            data: {
+              state: 'SENT',
+              txHash: refund.transactionHash,
+              leaseUntil: null,
+            },
+          }),
+          tx.claim.update({
+            where: { id: claim.id },
+            data: { state: 'REFUNDED' },
+          }),
+        ]);
+      });
       return true;
     }
     if (onchain[4] !== 1) throw new Error('Claim is not open');

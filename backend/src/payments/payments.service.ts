@@ -132,9 +132,13 @@ export class PaymentsService implements OnModuleDestroy {
       },
     });
     const visible = rows.slice(0, this.activityPageSize);
+    const hasIndexedReceipt = (intent: (typeof visible)[number]) =>
+      intent.state === 'CONFIRMED' ||
+      (intent.kind === 'CLAIM' &&
+        (intent.state === 'OPEN' || intent.state === 'REFUNDED'));
     const indexed = await this.indexedEvents(
       visible
-        .filter((intent) => intent.state === 'CONFIRMED')
+        .filter(hasIndexedReceipt)
         .flatMap((intent) => intent.attempts.map((attempt) => attempt.txHash)),
     );
     const items = visible.map((intent) => {
@@ -156,10 +160,9 @@ export class PaymentsService implements OnModuleDestroy {
         createdAt: intent.createdAt.toISOString(),
         txHash: intent.attempts[0]?.txHash ?? null,
         blockNumber: intent.attempts[0]?.blockNumber?.toString() ?? null,
-        indexedReceipt:
-          intent.state === 'CONFIRMED'
-            ? matchIndexedReceipt(intent, intent.attempts[0], indexed.events)
-            : null,
+        indexedReceipt: hasIndexedReceipt(intent)
+          ? matchIndexedReceipt(intent, intent.attempts[0], indexed.events)
+          : null,
       };
     });
     return {

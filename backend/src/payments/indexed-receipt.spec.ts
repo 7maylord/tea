@@ -3,6 +3,7 @@ import { matchIndexedReceipt, type IndexedEvent } from './indexed-receipt';
 it('accepts only the canonical transfer for the confirmed intent', () => {
   const intent = {
     kind: 'DIRECT',
+    state: 'CONFIRMED',
     chainId: 31337,
     tokenAddress: '0xtoken',
     streamAddress: null,
@@ -49,6 +50,7 @@ it('accepts only the canonical transfer for the confirmed intent', () => {
 it('matches stream creation by its onchain stream ID', () => {
   const intent = {
     kind: 'STREAM',
+    state: 'CONFIRMED',
     chainId: 31337,
     tokenAddress: '0xtoken',
     streamAddress: '0xstream',
@@ -87,6 +89,7 @@ it('matches stream creation by its onchain stream ID', () => {
 it('matches a claim payout by escrow and claim ID', () => {
   const intent = {
     kind: 'CLAIM',
+    state: 'CONFIRMED',
     chainId: 31337,
     tokenAddress: '0xtoken',
     streamAddress: null,
@@ -123,4 +126,51 @@ it('matches a claim payout by escrow and claim ID', () => {
     ]),
   ).toBeNull();
   expect(matchIndexedReceipt(intent, attempt, [event])?.id).toBe(event.id);
+});
+
+it('matches claim deposit and refund lifecycle receipts', () => {
+  const claimId = `0x${'12'.repeat(32)}`;
+  const intent = {
+    kind: 'CLAIM',
+    state: 'OPEN',
+    chainId: 31337,
+    tokenAddress: '0xtoken',
+    streamAddress: null,
+    payerAddress: '0xsender',
+    recipientAddress: '0xescrow',
+    amountUnits: '2500000',
+    streamId: null,
+    claimId,
+    claim: { escrowAddress: '0xescrow' },
+  };
+  const attempt = {
+    txHash: '0xtx',
+    blockNumber: 7n,
+    blockHash: '0xcanonical',
+  };
+  const event: IndexedEvent = {
+    id: '31337:0xtx:3',
+    chainId: 31337,
+    txHash: '0xtx',
+    logIndex: 3,
+    blockNumber: '7',
+    blockHash: '0xcanonical',
+    contractAddress: '0xescrow',
+    eventType: 'CLAIM_DEPOSITED',
+    fromAddress: '0xsender',
+    toAddress: null,
+    amountUnits: '2500000',
+    streamId: null,
+    claimId,
+  };
+  expect(matchIndexedReceipt(intent, attempt, [event])?.id).toBe(event.id);
+  expect(
+    matchIndexedReceipt({ ...intent, state: 'REFUNDED' }, attempt, [
+      {
+        ...event,
+        eventType: 'CLAIM_REFUNDED',
+        toAddress: '0xsender',
+      },
+    ])?.id,
+  ).toBe(event.id);
 });

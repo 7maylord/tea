@@ -141,6 +141,27 @@ describe('claim preparation (Postgres and Anvil)', () => {
     await app.close();
   });
 
+  async function waitForIndexedReceipt(token: string, paymentId: string) {
+    let receipt: { txHash: string } | null = null;
+    for (let attempt = 0; attempt < 20 && !receipt; attempt++) {
+      const activity = await request(app.getHttpServer())
+        .get('/v1/activity')
+        .set('privy-id-token', token)
+        .expect(200);
+      receipt =
+        (
+          activity.body as {
+            items: {
+              id: string;
+              indexedReceipt: { txHash: string } | null;
+            }[];
+          }
+        ).items.find((item) => item.id === paymentId)?.indexedReceipt ?? null;
+      if (!receipt) await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return receipt;
+  }
+
   it('reserves once and exposes only exact wallet calls', async () => {
     const body = {
       recipientEmail: 'Name+tag@EXAMPLE.COM',
@@ -299,6 +320,12 @@ describe('claim preparation (Postgres and Anvil)', () => {
       }
     ).items.find((item) => item.kind === 'CLAIM');
     expect(openClaim).toMatchObject({ state: 'OPEN', txHash: depositHash });
+    if (!openClaim) throw new Error('Open claim activity missing');
+    if (process.env.ENVIO_GRAPHQL_URL) {
+      expect((await waitForIndexedReceipt('payer', openClaim.id))?.txHash).toBe(
+        depositHash,
+      );
+    }
     const recipientBeforeClaim = await request(app.getHttpServer())
       .get('/v1/activity')
       .set('privy-id-token', 'other')
@@ -634,24 +661,9 @@ describe('claim preparation (Postgres and Anvil)', () => {
       }),
     );
     if (process.env.ENVIO_GRAPHQL_URL) {
-      let receipt: { txHash: string } | null = null;
-      for (let attempt = 0; attempt < 20 && !receipt; attempt++) {
-        const activity = await request(app.getHttpServer())
-          .get('/v1/activity')
-          .set('privy-id-token', 'other')
-          .expect(200);
-        receipt =
-          (
-            activity.body as {
-              items: {
-                kind: string;
-                indexedReceipt: { txHash: string } | null;
-              }[];
-            }
-          ).items.find((item) => item.kind === 'CLAIM')?.indexedReceipt ?? null;
-        if (!receipt) await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      expect(receipt?.txHash).toBe(claimHash);
+      expect((await waitForIndexedReceipt('other', openClaim.id))?.txHash).toBe(
+        claimHash,
+      );
     }
     await request(app.getHttpServer())
       .post(`/v1/claims/${claim.id}/authorize`)
@@ -659,7 +671,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .set('Idempotency-Key', 'authorize-two')
       .send({ inviteToken })
       .expect(409);
-  });
+  }, 30_000);
 
   it('refunds only an expired open claim and cancels a claimed refund job', async () => {
     const prepared = await request(app.getHttpServer())
@@ -771,6 +783,19 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect((refundActivity.body as { items: unknown[] }).items).toContainEqual(
       expect.objectContaining({ kind: 'CLAIM', state: 'REFUNDED' }),
     );
+    if (process.env.ENVIO_GRAPHQL_URL) {
+      const refunded = (
+        refundActivity.body as {
+          items: { id: string; kind: string; state: string }[];
+        }
+      ).items.find(
+        (item) => item.kind === 'CLAIM' && item.state === 'REFUNDED',
+      );
+      if (!refunded) throw new Error('Refund activity missing');
+      expect((await waitForIndexedReceipt('payer', refunded.id))?.txHash).toBe(
+        refundJob.txHash,
+      );
+    }
     const payerView = await request(app.getHttpServer())
       .get(`/v1/claims/${claim.id}`)
       .set('privy-id-token', 'payer')
@@ -784,5 +809,5 @@ describe('claim preparation (Postgres and Anvil)', () => {
         args: [payerAccount.address],
       }),
     ).toBe(5_000_000n);
-  });
+  }, 30_000);
 });

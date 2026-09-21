@@ -17,6 +17,7 @@ export type IndexedEvent = {
 export function matchIndexedReceipt(
   intent: {
     kind: string;
+    state: string;
     chainId: number;
     tokenAddress: string;
     streamAddress: string | null;
@@ -43,7 +44,11 @@ export function matchIndexedReceipt(
       ? 'TRANSFER'
       : intent.kind === 'STREAM'
         ? 'STREAM_CREATED'
-        : 'CLAIM_PAID';
+        : intent.state === 'OPEN'
+          ? 'CLAIM_DEPOSITED'
+          : intent.state === 'REFUNDED'
+            ? 'CLAIM_REFUNDED'
+            : 'CLAIM_PAID';
   const contract =
     intent.kind === 'DIRECT'
       ? intent.tokenAddress
@@ -60,7 +65,12 @@ export function matchIndexedReceipt(
       event.eventType === eventType &&
       event.contractAddress === contract &&
       event.fromAddress === intent.payerAddress &&
-      event.toAddress === intent.recipientAddress &&
+      event.toAddress ===
+        (intent.kind === 'CLAIM' && intent.state === 'OPEN'
+          ? null
+          : intent.kind === 'CLAIM' && intent.state === 'REFUNDED'
+            ? intent.payerAddress
+            : intent.recipientAddress) &&
       event.amountUnits === intent.amountUnits.toString() &&
       (intent.kind !== 'STREAM' ||
         event.streamId === intent.streamId?.toString()) &&
