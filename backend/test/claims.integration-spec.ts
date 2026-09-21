@@ -289,6 +289,23 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(saved.depositBlockHash).toMatch(/^0x[0-9a-f]{64}$/);
     expect(saved.expiry).not.toBeNull();
     expect(await db.outboxJob.count({ where: { claimId: claim.id } })).toBe(2);
+    const openActivity = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    const openClaim = (
+      openActivity.body as {
+        items: { id: string; kind: string; state: string; txHash: string }[];
+      }
+    ).items.find((item) => item.kind === 'CLAIM');
+    expect(openClaim).toMatchObject({ state: 'OPEN', txHash: depositHash });
+    const recipientBeforeClaim = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'other')
+      .expect(200);
+    expect((recipientBeforeClaim.body as { items: unknown[] }).items).toEqual(
+      [],
+    );
 
     const originalFetch = global.fetch;
     const fetchMock = jest
@@ -595,6 +612,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .expect(200);
     expect((payerActivity.body as { items: unknown[] }).items).toContainEqual(
       expect.objectContaining({
+        id: openClaim?.id,
         kind: 'CLAIM',
         direction: 'OUTGOING',
         state: 'CONFIRMED',
@@ -746,6 +764,13 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(
       (await db.claim.findUniqueOrThrow({ where: { id: claim.id } })).state,
     ).toBe('REFUNDED');
+    const refundActivity = await request(app.getHttpServer())
+      .get('/v1/activity')
+      .set('privy-id-token', 'payer')
+      .expect(200);
+    expect((refundActivity.body as { items: unknown[] }).items).toContainEqual(
+      expect.objectContaining({ kind: 'CLAIM', state: 'REFUNDED' }),
+    );
     const payerView = await request(app.getHttpServer())
       .get(`/v1/claims/${claim.id}`)
       .set('privy-id-token', 'payer')

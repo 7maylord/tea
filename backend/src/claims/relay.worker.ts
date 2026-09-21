@@ -75,7 +75,12 @@ async function recordClaimPayment(
         requestHash,
         authorizationExpiresAt: authorization.deadline,
       },
-      update: { state: 'CONFIRMED', threadId: thread.id },
+      update: {
+        recipientUserId: recipient.userId,
+        recipientAddress: authorization.recipientAddress,
+        threadId: thread.id,
+        state: 'CONFIRMED',
+      },
     });
     const existingAttempt = await tx.transactionAttempt.findUnique({
       where: {
@@ -102,7 +107,7 @@ async function recordClaimPayment(
       await tx.transactionAttempt.create({
         data: {
           intentId: payment.id,
-          operationIndex: 0,
+          operationIndex: 1,
           chainId: claim.chainId,
           txHash: receipt.transactionHash,
           state: 'CONFIRMED',

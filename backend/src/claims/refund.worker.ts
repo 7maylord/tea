@@ -88,6 +88,10 @@ export async function processNextClaimRefund(
           where: { id: claim.id },
           data: { state: onchain[4] === 3 ? 'REFUNDED' : 'CLAIMED' },
         }),
+        db.paymentIntent.updateMany({
+          where: { claimId: claim.id },
+          data: { state: onchain[4] === 3 ? 'REFUNDED' : 'CONFIRMED' },
+        }),
       ]);
       return true;
     }
@@ -155,6 +159,10 @@ export async function processNextClaimRefund(
           }),
           db.claim.update({
             where: { id: claim.id },
+            data: { state: 'REFUNDED' },
+          }),
+          db.paymentIntent.updateMany({
+            where: { claimId: claim.id },
             data: { state: 'REFUNDED' },
           }),
         ]);

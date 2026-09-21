@@ -140,6 +140,69 @@ export class ClaimsService implements OnModuleDestroy {
     };
   }
 
+  private async projectOpenClaim(tx: Prisma.TransactionClient, claim: Claim) {
+    if (
+      claim.state !== 'OPEN' ||
+      !claim.expiry ||
+      !claim.depositTxHash ||
+      claim.depositBlockNumber === null ||
+      !claim.depositBlockHash
+    ) {
+      throw new Error('Verified claim deposit is incomplete');
+    }
+    const payment = await tx.paymentIntent.upsert({
+      where: { claimId: claim.id },
+      create: {
+        claimId: claim.id,
+        payerId: claim.payerId,
+        chainId: claim.chainId,
+        tokenAddress: claim.tokenAddress,
+        payerAddress: claim.payerAddress,
+        recipientAddress: claim.escrowAddress,
+        amountUnits: claim.amountUnits,
+        preparedAtBlock: claim.preparedAtBlock,
+        kind: 'CLAIM',
+        state: 'OPEN',
+        idempotencyKey: null,
+        requestHash: claim.requestHash,
+        authorizationExpiresAt: claim.expiry,
+      },
+      update: {
+        state: 'OPEN',
+        authorizationExpiresAt: claim.expiry,
+      },
+    });
+    const existing = await tx.transactionAttempt.findUnique({
+      where: {
+        chainId_txHash: {
+          chainId: claim.chainId,
+          txHash: claim.depositTxHash,
+        },
+      },
+    });
+    if (existing && existing.intentId !== payment.id) {
+      throw new ConflictException(
+        'Claim deposit already belongs to another payment',
+      );
+    }
+    if (!existing) {
+      await tx.transactionAttempt.create({
+        data: {
+          intentId: payment.id,
+          operationIndex: 0,
+          chainId: claim.chainId,
+          txHash: claim.depositTxHash,
+          state: 'CONFIRMED',
+          idempotencyKey: `claim-deposit:${claim.id}`,
+          requestHash: claim.requestHash,
+          confirmedAt: new Date(),
+          blockNumber: claim.depositBlockNumber,
+          blockHash: claim.depositBlockHash,
+        },
+      });
+    }
+  }
+
   async create(
     identityToken: string | undefined,
     idempotencyKey: string | undefined,
@@ -469,9 +532,12 @@ export class ClaimsService implements OnModuleDestroy {
     ) {
       if (observed.state === 'OPEN') {
         if (!observed.expiry) throw new Error('Verified expiry missing');
-        await this.db.outboxJob.createMany({
-          data: this.jobsForOpenClaim(claim.id, observed.expiry),
-          skipDuplicates: true,
+        await this.db.$transaction(async (tx) => {
+          await tx.outboxJob.createMany({
+            data: this.jobsForOpenClaim(claim.id, observed.expiry),
+            skipDuplicates: true,
+          });
+          await this.projectOpenClaim(tx, claim);
         });
       }
       return claim;
@@ -492,6 +558,7 @@ export class ClaimsService implements OnModuleDestroy {
           data: this.jobsForOpenClaim(claim.id, observed.expiry),
           skipDuplicates: true,
         });
+        await this.projectOpenClaim(tx, updated);
       }
       return updated;
     });
@@ -579,6 +646,7 @@ export class ClaimsService implements OnModuleDestroy {
             data: this.jobsForOpenClaim(id, observed.expiry),
             skipDuplicates: true,
           });
+          await this.projectOpenClaim(tx, saved);
         }
         return saved;
       });
