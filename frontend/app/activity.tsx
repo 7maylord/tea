@@ -31,7 +31,7 @@ function money(units: string) {
   return `$${whole}.${cents}`;
 }
 
-export default function Activity({ apiOrigin }: { apiOrigin: string }) {
+export default function Activity({ apiOrigin, userId }: { apiOrigin: string; userId: string }) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -128,7 +128,7 @@ export default function Activity({ apiOrigin }: { apiOrigin: string }) {
             <p className="font-semibold">{money(payment.amountUnits)}</p>
           </div>
           <p className="mt-3 text-sm text-stone-700">{payment.state === "CONFIRMED" ? payment.indexedReceipt ? "Confirmed receipt" : "Confirmed; activity updating" : payment.state.replaceAll("_", " ").toLowerCase()}</p>
-          {payment.kind === "STREAM" && payment.state === "CONFIRMED" && <StreamCard id={payment.id} apiOrigin={apiOrigin} />}
+          {payment.kind === "STREAM" && payment.state === "CONFIRMED" && <StreamCard id={payment.id} apiOrigin={apiOrigin} userId={userId} />}
         </article>)}
         {!loading && payments.length === 0 && <p className="text-stone-600">No payments in this thread yet.</p>}
       </div>

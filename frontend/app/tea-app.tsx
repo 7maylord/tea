@@ -122,6 +122,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         sessionStorage.removeItem(`tea:stream:${session.id}`);
         sessionStorage.removeItem(`tea:stream-draft:${session.id}`);
         sessionStorage.removeItem(`tea:send-review:${session.id}`);
+        for (let index = sessionStorage.length - 1; index >= 0; index--) {
+          const key = sessionStorage.key(index);
+          if (key?.startsWith(`tea:stream-action:${session.id}:`)) sessionStorage.removeItem(key);
+        }
       }
       setActive(null);
       setHandle('');
@@ -250,7 +254,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
-            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} />}
+            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} />}
             {view === 'profile' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
               <h1 className="text-4xl font-semibold tracking-tight">Profile</h1>

@@ -12,7 +12,13 @@ export type StreamIntent = {
     create: { chainId: number; from: string; to: string; value: string; data: Hex } } | null;
 };
 export type StreamAction = { id: string; kind: "withdraw" | "cancel"; state: string; plan: {
-  chainId: number; from: string; to: string; value: string; data: Hex } };
+  chainId: number; from: string; to: string; value: string; data: Hex } | null };
+export type SavedStreamAction = {
+  intentId: string; actionId: string | null; prepareKey: string; submitKey: string;
+  kind: "withdraw" | "cancel"; stage: "PREPARING" | "WALLET_REQUESTED" | "SUBMITTED"; hash?: Hex;
+};
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const hashPattern = /^0x[0-9a-f]{64}$/i;
 
 export function checkedStreamPlan(intent: StreamIntent, account: string, token: string, chainId: number,
   recipient: string, amountUnits: string, durationSeconds: string) {
@@ -37,12 +43,27 @@ export function checkedStreamPlan(intent: StreamIntent, account: string, token: 
   return plan;
 }
 
-export function checkedStreamAction(action: StreamAction, account: string, contract: string, chainId: number, streamId: string) {
-  if (action.state !== "READY" || action.plan.chainId !== chainId || action.plan.from.toLowerCase() !== account.toLowerCase() ||
-    action.plan.to.toLowerCase() !== contract.toLowerCase() || action.plan.value !== "0") throw new Error("Stream action changed. Refresh and try again.");
+export function checkedStreamAction(action: StreamAction, kind: "withdraw" | "cancel", account: string, contract: string, chainId: number, streamId: string) {
+  const plan = action.plan;
+  if (!uuidPattern.test(action.id) || action.kind !== kind || action.state !== "READY" || !plan || plan.chainId !== chainId || plan.from.toLowerCase() !== account.toLowerCase() ||
+    plan.to.toLowerCase() !== contract.toLowerCase() || plan.value !== "0") throw new Error("Stream action changed. Refresh and try again.");
   try {
-    const decoded = decodeFunctionData({ abi: streamAbi, data: action.plan.data });
+    const decoded = decodeFunctionData({ abi: streamAbi, data: plan.data });
     if (decoded.functionName !== action.kind || decoded.args[0] !== BigInt(streamId)) throw new Error("Wrong action");
   } catch { throw new Error("Stream action changed. Refresh and try again."); }
-  return action.plan;
+  return plan;
+}
+
+export function checkedStoredStreamAction(value: unknown, intentId: string): SavedStreamAction | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.intentId !== intentId || typeof record.prepareKey !== "string" || !uuidPattern.test(record.prepareKey) ||
+    typeof record.submitKey !== "string" || !uuidPattern.test(record.submitKey) ||
+    (record.kind !== "withdraw" && record.kind !== "cancel") ||
+    (record.stage !== "PREPARING" && record.stage !== "WALLET_REQUESTED" && record.stage !== "SUBMITTED") ||
+    (record.actionId !== null && (typeof record.actionId !== "string" || !uuidPattern.test(record.actionId))) ||
+    (record.hash !== undefined && (typeof record.hash !== "string" || !hashPattern.test(record.hash))) ||
+    (record.stage === "PREPARING" ? record.actionId !== null || record.hash !== undefined :
+      record.stage === "WALLET_REQUESTED" ? record.actionId === null || record.hash !== undefined : record.actionId === null || record.hash === undefined)) return null;
+  return record as SavedStreamAction;
 }
