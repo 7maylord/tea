@@ -128,7 +128,7 @@ export class PaymentsService implements OnModuleDestroy {
           take: 1,
           select: { txHash: true, blockNumber: true, blockHash: true },
         },
-        claim: { select: { escrowAddress: true } },
+        claim: { select: { escrowAddress: true, expiry: true } },
       },
     });
     const visible = rows.slice(0, this.activityPageSize);
@@ -160,6 +160,8 @@ export class PaymentsService implements OnModuleDestroy {
         createdAt: intent.createdAt.toISOString(),
         txHash: intent.attempts[0]?.txHash ?? null,
         blockNumber: intent.attempts[0]?.blockNumber?.toString() ?? null,
+        claimId: intent.claimId,
+        claimExpiry: intent.claim?.expiry?.toISOString() ?? null,
         indexedReceipt: hasIndexedReceipt(intent)
           ? matchIndexedReceipt(intent, intent.attempts[0], indexed.events)
           : null,

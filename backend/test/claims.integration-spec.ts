@@ -316,10 +316,22 @@ describe('claim preparation (Postgres and Anvil)', () => {
       .expect(200);
     const openClaim = (
       openActivity.body as {
-        items: { id: string; kind: string; state: string; txHash: string }[];
+        items: {
+          id: string;
+          kind: string;
+          state: string;
+          txHash: string;
+          claimId: string | null;
+          claimExpiry: string | null;
+        }[];
       }
     ).items.find((item) => item.kind === 'CLAIM');
-    expect(openClaim).toMatchObject({ state: 'OPEN', txHash: depositHash });
+    expect(openClaim).toMatchObject({
+      state: 'OPEN',
+      txHash: depositHash,
+      claimId: claim.id,
+      claimExpiry: saved.expiry?.toISOString(),
+    });
     if (!openClaim) throw new Error('Open claim activity missing');
     if (process.env.ENVIO_GRAPHQL_URL) {
       expect((await waitForIndexedReceipt('payer', openClaim.id))?.txHash).toBe(
