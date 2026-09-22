@@ -49,4 +49,24 @@ export class StreamsController {
   ) {
     return this.streams.action(token, key, id, 'cancel');
   }
+
+  @Get(':id/actions/:actionId')
+  getAction(
+    @Headers('privy-id-token') token: string | undefined,
+    @Param('id') id: string,
+    @Param('actionId') actionId: string,
+  ) {
+    return this.streams.getAction(token, id, actionId);
+  }
+
+  @Post(':id/actions/:actionId/submission')
+  registerAction(
+    @Headers('privy-id-token') token: string | undefined,
+    @Headers('idempotency-key') key: string | undefined,
+    @Param('id') id: string,
+    @Param('actionId') actionId: string,
+    @Body() body: unknown,
+  ) {
+    return this.streams.registerAction(token, id, actionId, key, body);
+  }
 }

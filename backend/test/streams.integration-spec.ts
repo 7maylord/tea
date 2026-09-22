@@ -105,6 +105,9 @@ describe('stream creation (Postgres and Anvil)', () => {
   });
 
   afterAll(async () => {
+    await db.streamAction.deleteMany({
+      where: { intent: { payerId: senderId } },
+    });
     await db.transactionAttempt.deleteMany({
       where: { intent: { payerId: senderId } },
     });
@@ -278,9 +281,16 @@ describe('stream creation (Postgres and Anvil)', () => {
       .set('Idempotency-Key', 'collect-once')
       .expect(201);
     const collectPlan = collect.body as {
+      id: string;
       withdrawableUnits: string;
       plan: { to: Address; data: Hex };
     };
+    const collectReplay = await request(app.getHttpServer())
+      .post(`/v1/streams/${stream.id}/withdraw`)
+      .set('privy-id-token', 'recipient')
+      .set('Idempotency-Key', 'collect-once')
+      .expect(201);
+    expect((collectReplay.body as { id: string }).id).toBe(collectPlan.id);
     expect(BigInt(collectPlan.withdrawableUnits)).toBeGreaterThan(0n);
     expect(BigInt(collectPlan.withdrawableUnits)).toBeLessThan(6_000_000n);
     const recipientSigner = createWalletClient({
@@ -294,6 +304,28 @@ describe('stream creation (Postgres and Anvil)', () => {
       value: 0n,
     });
     await client.waitForTransactionReceipt({ hash: firstCollectHash });
+    await request(app.getHttpServer())
+      .post(`/v1/streams/${stream.id}/actions/${collectPlan.id}/submission`)
+      .set('privy-id-token', 'sender')
+      .set('Idempotency-Key', 'collect-submit')
+      .send({ txHash: firstCollectHash })
+      .expect(404);
+    const collected = await request(app.getHttpServer())
+      .post(`/v1/streams/${stream.id}/actions/${collectPlan.id}/submission`)
+      .set('privy-id-token', 'recipient')
+      .set('Idempotency-Key', 'collect-submit')
+      .send({ txHash: firstCollectHash })
+      .expect(201);
+    expect(
+      (collected.body as { state: string; amountUnits: string }).state,
+    ).toBe('CONFIRMED');
+    expect(
+      BigInt((collected.body as { amountUnits: string }).amountUnits),
+    ).toBeGreaterThan(0n);
+    await request(app.getHttpServer())
+      .get(`/v1/streams/${stream.id}/actions/${collectPlan.id}`)
+      .set('privy-id-token', 'recipient')
+      .expect(200);
     const afterCollect = await request(app.getHttpServer())
       .get(`/v1/streams/${stream.id}`)
       .set('privy-id-token', 'recipient')
@@ -313,14 +345,24 @@ describe('stream creation (Postgres and Anvil)', () => {
       .set('privy-id-token', 'sender')
       .set('Idempotency-Key', 'cancel-once')
       .expect(201);
-    const cancelPlan = (cancel.body as { plan: { to: Address; data: Hex } })
-      .plan;
+    const cancelAction = cancel.body as {
+      id: string;
+      plan: { to: Address; data: Hex };
+    };
+    const cancelPlan = cancelAction.plan;
     const cancelHash = await signer.sendTransaction({
       to: cancelPlan.to,
       data: cancelPlan.data,
       value: 0n,
     });
     await client.waitForTransactionReceipt({ hash: cancelHash });
+    const canceled = await request(app.getHttpServer())
+      .post(`/v1/streams/${stream.id}/actions/${cancelAction.id}/submission`)
+      .set('privy-id-token', 'sender')
+      .set('Idempotency-Key', 'cancel-submit')
+      .send({ txHash: cancelHash })
+      .expect(201);
+    expect((canceled.body as { state: string }).state).toBe('CONFIRMED');
     await request(app.getHttpServer())
       .post(`/v1/streams/${stream.id}/cancel`)
       .set('privy-id-token', 'sender')
@@ -346,15 +388,23 @@ describe('stream creation (Postgres and Anvil)', () => {
       .set('privy-id-token', 'recipient')
       .set('Idempotency-Key', 'collect-rest')
       .expect(201);
-    const finalPlan = (
-      finalCollect.body as { plan: { to: Address; data: Hex } }
-    ).plan;
+    const finalAction = finalCollect.body as {
+      id: string;
+      plan: { to: Address; data: Hex };
+    };
+    const finalPlan = finalAction.plan;
     const finalHash = await recipientSigner.sendTransaction({
       to: finalPlan.to,
       data: finalPlan.data,
       value: 0n,
     });
     await client.waitForTransactionReceipt({ hash: finalHash });
+    await request(app.getHttpServer())
+      .post(`/v1/streams/${stream.id}/actions/${finalAction.id}/submission`)
+      .set('privy-id-token', 'recipient')
+      .set('Idempotency-Key', 'collect-rest-submit')
+      .send({ txHash: finalHash })
+      .expect(201);
     const finalState = await request(app.getHttpServer())
       .get(`/v1/streams/${stream.id}`)
       .set('privy-id-token', 'recipient')
@@ -390,5 +440,8 @@ describe('stream creation (Postgres and Anvil)', () => {
     ]);
     expect(recipientBalance).toBe(BigInt(frozen.recipientEntitlementUnits));
     expect(senderBalance + recipientBalance).toBe(10_000_000n);
+    expect(
+      await db.streamAction.count({ where: { intentId: stream.id } }),
+    ).toBe(3);
   });
 });

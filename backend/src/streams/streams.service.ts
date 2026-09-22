@@ -13,6 +13,7 @@ import {
   PaymentIntent,
   Prisma,
   PrismaClient,
+  StreamAction,
   TransactionAttempt,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
@@ -41,6 +42,8 @@ const streamAbi = parseAbi([
   'function withdraw(uint256 streamId) returns (uint256 amount)',
   'function cancel(uint256 streamId) returns (uint256 refund)',
   'event StreamCreated(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 deposit, uint64 start, uint64 end)',
+  'event StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount)',
+  'event StreamCanceled(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 recipientEntitlement, uint256 senderRefund)',
 ]);
 const idPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -111,6 +114,35 @@ export class StreamsService implements OnModuleDestroy {
             },
           }
         : null,
+    };
+  }
+
+  private presentAction(action: StreamAction, intent: PaymentIntent) {
+    if (!intent.streamAddress || intent.streamId === null) {
+      throw new Error('Stream intent is incomplete');
+    }
+    return {
+      id: action.id,
+      streamIntentId: intent.id,
+      kind: action.kind,
+      state: action.state,
+      txHash: action.txHash,
+      amountUnits: action.amountUnits?.toString() ?? null,
+      blockNumber: action.blockNumber?.toString() ?? null,
+      plan:
+        action.state === 'READY'
+          ? {
+              chainId: intent.chainId,
+              from: action.actorAddress,
+              to: intent.streamAddress,
+              value: '0',
+              data: encodeFunctionData({
+                abi: streamAbi,
+                functionName: action.kind as 'withdraw' | 'cancel',
+                args: [BigInt(intent.streamId.toString())],
+              }),
+            }
+          : null,
     };
   }
 
@@ -518,6 +550,18 @@ export class StreamsService implements OnModuleDestroy {
       throw new BadRequestException('Invalid Idempotency-Key');
     }
     const user = await this.sessions.sync(identityToken);
+    const requestHash = createHash('sha256')
+      .update(JSON.stringify({ kind, actor: user.account.address }))
+      .digest('hex');
+    const existing = await this.db.streamAction.findUnique({
+      where: { intentId_idempotencyKey: { intentId: id, idempotencyKey } },
+      include: { intent: true },
+    });
+    if (existing) {
+      if (existing.requestHash !== requestHash)
+        throw new ConflictException('Idempotency-Key already used');
+      return this.presentAction(existing, existing.intent);
+    }
     const stream = await this.readForUser(user, id);
     if (
       stream.state !== 'CONFIRMED' ||
@@ -547,25 +591,317 @@ export class StreamsService implements OnModuleDestroy {
     ) {
       throw new ConflictException('Stream can no longer be canceled');
     }
-    return {
-      id,
-      kind,
-      state: 'READY',
-      withdrawableUnits:
-        kind === 'withdraw' ? stream.chainState.withdrawableUnits : null,
-      asOfBlock: stream.chainState.blockNumber,
-      plan: {
-        chainId: stream.chainId,
-        from: expected,
-        to: stream.streamContract,
-        value: '0',
-        data: encodeFunctionData({
+    try {
+      const action = await this.db.streamAction.create({
+        data: {
+          intentId: id,
+          chainId: stream.chainId,
+          kind,
+          actorAddress: expected,
+          state: 'READY',
+          idempotencyKey,
+          requestHash,
+          preparedAtBlock: BigInt(stream.chainState.blockNumber),
+        },
+      });
+      return {
+        ...this.presentAction(
+          action,
+          await this.db.paymentIntent.findUniqueOrThrow({ where: { id } }),
+        ),
+        withdrawableUnits:
+          kind === 'withdraw' ? stream.chainState.withdrawableUnits : null,
+        asOfBlock: stream.chainState.blockNumber,
+      };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const replay = await this.db.streamAction.findUnique({
+          where: {
+            intentId_idempotencyKey: { intentId: id, idempotencyKey },
+          },
+          include: { intent: true },
+        });
+        if (replay?.requestHash === requestHash) {
+          return this.presentAction(replay, replay.intent);
+        }
+        throw new ConflictException('Idempotency-Key already used');
+      }
+      throw error;
+    }
+  }
+
+  private async observeAction(
+    action: StreamAction,
+    intent: PaymentIntent,
+    hash: Hex,
+  ) {
+    if (
+      !process.env.RPC_URL ||
+      !intent.streamAddress ||
+      intent.streamId === null
+    ) {
+      throw new ServiceUnavailableException('Stream network is unavailable');
+    }
+    const client = createPublicClient({
+      transport: http(process.env.RPC_URL, { timeout: 5000 }),
+    });
+    try {
+      if ((await client.getChainId()) !== intent.chainId)
+        throw new Error('Wrong chain');
+      const transaction = await client
+        .getTransaction({ hash })
+        .catch((error: unknown) => {
+          if (error instanceof TransactionNotFoundError) return null;
+          throw error;
+        });
+      if (!transaction) return { state: 'RECONCILING' };
+      const expectedData = encodeFunctionData({
+        abi: streamAbi,
+        functionName: action.kind as 'withdraw' | 'cancel',
+        args: [BigInt(intent.streamId.toString())],
+      });
+      if (
+        transaction.from.toLowerCase() !== action.actorAddress ||
+        transaction.to?.toLowerCase() !== intent.streamAddress ||
+        transaction.input.toLowerCase() !== expectedData.toLowerCase() ||
+        transaction.value !== 0n
+      ) {
+        throw new ConflictException('Transaction does not match stream action');
+      }
+      const receipt = await client
+        .getTransactionReceipt({ hash })
+        .catch((error: unknown) => {
+          if (error instanceof TransactionReceiptNotFoundError) return null;
+          throw error;
+        });
+      if (!receipt) return { state: 'SUBMITTED' };
+      if (receipt.blockNumber <= action.preparedAtBlock) {
+        throw new ConflictException('Transaction predates stream action');
+      }
+      if (receipt.status !== 'success') {
+        return {
+          state: 'FAILED',
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+        };
+      }
+      const streamId = BigInt(intent.streamId.toString());
+      if (action.kind === 'withdraw') {
+        const event = parseEventLogs({
           abi: streamAbi,
-          functionName: kind,
-          args: [BigInt(stream.streamId)],
-        }),
+          eventName: 'StreamWithdrawn',
+          logs: receipt.logs,
+        }).find(
+          (log) =>
+            log.address.toLowerCase() === intent.streamAddress &&
+            log.args.streamId === streamId &&
+            log.args.sender?.toLowerCase() === intent.payerAddress &&
+            log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+            log.args.amount > 0n,
+        );
+        const transferred = event
+          ? parseEventLogs({
+              abi: erc20Abi,
+              eventName: 'Transfer',
+              logs: receipt.logs,
+            }).some(
+              (log) =>
+                log.address.toLowerCase() === intent.tokenAddress &&
+                log.args.from?.toLowerCase() === intent.streamAddress &&
+                log.args.to?.toLowerCase() === intent.recipientAddress &&
+                log.args.value === event.args.amount,
+            )
+          : false;
+        if (!event || !transferred)
+          throw new ConflictException('Stream withdrawal events do not match');
+        return {
+          state: 'CONFIRMED',
+          amountUnits: event.args.amount,
+          blockNumber: receipt.blockNumber,
+          blockHash: receipt.blockHash,
+        };
+      }
+      const event = parseEventLogs({
+        abi: streamAbi,
+        eventName: 'StreamCanceled',
+        logs: receipt.logs,
+      }).find(
+        (log) =>
+          log.address.toLowerCase() === intent.streamAddress &&
+          log.args.streamId === streamId &&
+          log.args.sender?.toLowerCase() === intent.payerAddress &&
+          log.args.recipient?.toLowerCase() === intent.recipientAddress,
+      );
+      const refunded =
+        event?.args.senderRefund === 0n ||
+        (event
+          ? parseEventLogs({
+              abi: erc20Abi,
+              eventName: 'Transfer',
+              logs: receipt.logs,
+            }).some(
+              (log) =>
+                log.address.toLowerCase() === intent.tokenAddress &&
+                log.args.from?.toLowerCase() === intent.streamAddress &&
+                log.args.to?.toLowerCase() === intent.payerAddress &&
+                log.args.value === event.args.senderRefund,
+            )
+          : false);
+      if (!event || !refunded)
+        throw new ConflictException('Stream cancellation events do not match');
+      return {
+        state: 'CONFIRMED',
+        amountUnits: event.args.senderRefund,
+        blockNumber: receipt.blockNumber,
+        blockHash: receipt.blockHash,
+      };
+    } catch (error) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      throw new ServiceUnavailableException(
+        'Stream action verification unavailable',
+      );
+    }
+  }
+
+  private async actionForUser(
+    identityToken: string,
+    id: string,
+    actionId: string,
+  ) {
+    const user = await this.sessions.sync(identityToken);
+    const action = await this.db.streamAction.findFirst({
+      where: {
+        id: actionId,
+        intentId: id,
+        actorAddress: user.account.address,
       },
-    };
+      include: { intent: true },
+    });
+    if (!action) throw new NotFoundException();
+    return action;
+  }
+
+  async getAction(
+    identityToken: string | undefined,
+    id: string,
+    actionId: string,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!idPattern.test(id) || !idPattern.test(actionId))
+      throw new NotFoundException();
+    const action = await this.actionForUser(identityToken, id, actionId);
+    if (!action.txHash) return this.presentAction(action, action.intent);
+    const observed = await this.observeAction(
+      action,
+      action.intent,
+      action.txHash as Hex,
+    );
+    if (
+      observed.state === action.state &&
+      (observed.blockHash ?? null) === action.blockHash
+    ) {
+      return this.presentAction(action, action.intent);
+    }
+    const updated = await this.db.streamAction.update({
+      where: { id: action.id },
+      data: {
+        state: observed.state,
+        amountUnits: observed.amountUnits?.toString() ?? null,
+        blockNumber: observed.blockNumber ?? null,
+        blockHash: observed.blockHash ?? null,
+      },
+    });
+    return this.presentAction(updated, action.intent);
+  }
+
+  async registerAction(
+    identityToken: string | undefined,
+    id: string,
+    actionId: string,
+    idempotencyKey: string | undefined,
+    input: unknown,
+  ) {
+    if (!identityToken)
+      throw new UnauthorizedException('Identity token required');
+    if (!idPattern.test(id) || !idPattern.test(actionId))
+      throw new NotFoundException();
+    if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('Invalid Idempotency-Key');
+    }
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).join(',') !== 'txHash'
+    ) {
+      throw new BadRequestException('Invalid submission');
+    }
+    const rawHash = (input as { txHash?: unknown }).txHash;
+    if (typeof rawHash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(rawHash)) {
+      throw new BadRequestException('Invalid transaction hash');
+    }
+    const hash = rawHash.toLowerCase() as Hex;
+    const requestHash = createHash('sha256').update(hash).digest('hex');
+    const action = await this.actionForUser(identityToken, id, actionId);
+    if (
+      action.submissionKey === idempotencyKey &&
+      action.submissionHash !== requestHash
+    ) {
+      throw new ConflictException('Idempotency-Key already used');
+    }
+    if (action.txHash) {
+      if (action.txHash !== hash)
+        throw new ConflictException('Stream action already submitted');
+      return this.getAction(identityToken, id, actionId);
+    }
+    const observed = await this.observeAction(action, action.intent, hash);
+    try {
+      const updated = await this.db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "stream_actions" WHERE "id" = ${actionId}::uuid FOR UPDATE`;
+        const current = await tx.streamAction.findUniqueOrThrow({
+          where: { id: actionId },
+        });
+        if (
+          current.submissionKey === idempotencyKey &&
+          current.submissionHash !== requestHash
+        ) {
+          throw new ConflictException('Idempotency-Key already used');
+        }
+        if (current.txHash && current.txHash !== hash) {
+          throw new ConflictException('Stream action already submitted');
+        }
+        return tx.streamAction.update({
+          where: { id: actionId },
+          data: {
+            txHash: hash,
+            submissionKey: idempotencyKey,
+            submissionHash: requestHash,
+            state: observed.state,
+            amountUnits: observed.amountUnits?.toString() ?? null,
+            blockNumber: observed.blockNumber ?? null,
+            blockHash: observed.blockHash ?? null,
+          },
+        });
+      });
+      return this.presentAction(updated, action.intent);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('Transaction is already registered');
+      }
+      throw error;
+    }
   }
 
   async register(

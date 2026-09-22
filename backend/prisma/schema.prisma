@@ -96,6 +96,7 @@ model PaymentIntent {
   thread                 Thread?              @relation(fields: [threadId], references: [id], onDelete: Restrict)
   claim                  Claim?               @relation(fields: [claimId], references: [id], onDelete: Restrict)
   attempts               TransactionAttempt[]
+  streamActions          StreamAction[]
 
   @@unique([payerId, idempotencyKey])
   @@index([payerId, state, authorizationExpiresAt])
@@ -122,6 +123,32 @@ model TransactionAttempt {
   @@unique([intentId, idempotencyKey])
   @@index([intentId, operationIndex])
   @@map("transaction_attempts")
+}
+
+model StreamAction {
+  id                     String        @id @default(uuid()) @db.Uuid
+  intentId               String        @db.Uuid
+  chainId                Int
+  kind                   String        @db.VarChar(16)
+  actorAddress           String        @db.VarChar(42)
+  state                  String        @db.VarChar(32)
+  idempotencyKey         String        @db.VarChar(128)
+  requestHash            String        @db.Char(64)
+  preparedAtBlock        BigInt        @db.BigInt
+  txHash                 String?       @db.VarChar(66)
+  submissionKey          String?       @db.VarChar(128)
+  submissionHash         String?       @db.Char(64)
+  amountUnits            Decimal?      @db.Decimal(78, 0)
+  blockNumber            BigInt?       @db.BigInt
+  blockHash              String?       @db.VarChar(66)
+  createdAt              DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime      @updatedAt @db.Timestamptz(6)
+  intent                 PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  @@unique([intentId, idempotencyKey])
+  @@unique([chainId, txHash])
+  @@index([intentId, createdAt, id])
+  @@map("stream_actions")
 }
 
 model Claim {
