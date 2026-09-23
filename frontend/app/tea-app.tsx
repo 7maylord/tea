@@ -9,6 +9,7 @@ import {
 } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Activity from "./activity";
+import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
 
 type Session = {
@@ -35,6 +36,7 @@ function formatAmount(units: string, decimals: number) {
 const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900';
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
+  const online = useOnlineStatus();
   const { ready, authenticated, user, login, logout, linkPasskey } = usePrivy();
   const { identityToken } = useIdentityToken();
   const { createWallet } = useCreateWallet();
@@ -172,6 +174,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   }
 
   async function getTestFunds() {
+    if (!online) { setError('Reconnect before requesting test funds.'); return; }
     if (!session || session.account.chainId !== 31337) return;
     setBusy(true);
     setError('');
@@ -210,13 +213,13 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Money, together</p>
             <h1 className="text-5xl font-semibold leading-[1.06] tracking-tight">Send dollars like a message.</h1>
             <p className="mt-6 text-lg leading-7 text-stone-600">Start with your email. Your wallet comes with you.</p>
-            <button type="button" onClick={() => login()} className={`${primary} mt-10`}>Continue with email</button>
+            <button type="button" disabled={!online} onClick={() => login()} className={`${primary} mt-10`}>Continue with email</button>
           </>
         ) : !hasWallet ? (
           <>
             <h1 className="text-3xl font-semibold">Finish setting up your wallet</h1>
             <p className="mt-3 text-stone-600">You can receive money after your wallet is ready.</p>
-            <button type="button" disabled={busy} onClick={() => void finishWallet()} className={`${primary} mt-8`}>{busy ? 'Setting up…' : 'Finish wallet setup'}</button>
+            <button type="button" disabled={busy || !online} onClick={() => void finishWallet()} className={`${primary} mt-8`}>{busy ? 'Setting up…' : 'Finish wallet setup'}</button>
           </>
         ) : !session ? (
           <>
@@ -235,7 +238,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <span aria-hidden="true" className="text-stone-500">@</span>
                 <input id="handle" name="handle" autoComplete="username" autoCapitalize="none" spellCheck={false} required minLength={3} maxLength={20} pattern="[a-z0-9_]{3,20}" value={handle} onChange={(event) => setHandle(event.target.value)} className="w-full bg-transparent px-2 py-3 text-base outline-none" />
               </div>
-              <button type="submit" disabled={busy} className={primary}>{busy ? 'Saving…' : 'Claim handle'}</button>
+              <button type="submit" disabled={busy || !online} className={primary}>{busy ? 'Saving…' : 'Claim handle'}</button>
             </form>
           </>
         ) : (
@@ -250,7 +253,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
                 <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
               </div>
-              {session.account.chainId === 31337 && <button type="button" disabled={busy} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
+              {session.account.chainId === 31337 && <button type="button" disabled={busy || !online} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
@@ -267,7 +270,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
                 <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
               </div>
-              {!hasPasskey && passkeysAvailable && <button type="button" onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">Add a passkey for easier sign-in</button>}
+              {!hasPasskey && passkeysAvailable && <button type="button" disabled={!online} onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Add a passkey for easier sign-in</button>}
               <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
             </>}
           </>

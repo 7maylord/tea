@@ -4,6 +4,7 @@ import { getIdentityToken, useSendTransaction, useWallets } from "@privy-io/reac
 import { createPublicClient, custom, formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
+import { useOnlineStatus } from "./pwa";
 
 type Balance = { token: string; decimals: number; symbol: string };
 type SavedClaim = {
@@ -31,6 +32,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
 }) {
   const { sendTransaction } = useSendTransaction();
   const { wallets } = useWallets();
+  const online = useOnlineStatus();
   const [saved, setSaved] = useState<SavedClaim | null>(null);
   const [draft, setDraft] = useState<ClaimDraft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -99,7 +101,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   }, [auth, onSettled, storageKey]);
 
   useEffect(() => {
-    if (!saved) return;
+    if (!online || !saved) return;
     if (saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash) {
       const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked.")), 0);
       return () => window.clearTimeout(initial);
@@ -109,9 +111,10 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       const poll = window.setInterval(() => void reconcile(saved), 5000);
       return () => { window.clearTimeout(initial); window.clearInterval(poll); };
     }
-  }, [reconcile, save, saved, waitFor]);
+  }, [online, reconcile, save, saved, waitFor]);
 
   async function approve() {
+    if (!online) { setError("Reconnect before approving this payment."); return; }
     setBusy(true);
     setError("");
     try {
@@ -140,6 +143,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   }
 
   async function deposit() {
+    if (!online) { setError("Reconnect before depositing this payment."); return; }
     if (!saved || saved.stage !== "READY_DEPOSIT") return;
     setBusy(true);
     setError("");
@@ -164,10 +168,10 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       <p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), balance.decimals)} {balance.symbol}</p>
       <p className="mt-5 text-sm leading-6 text-stone-600">The full amount is locked for 14 days. The recipient must verify this email to collect it. After expiry, unclaimed funds return to you.</p>
       {done ? <p className="mt-6 font-semibold text-emerald-800">Deposit confirmed. The invitation is queued.</p>
-        : !saved ? <button type="button" disabled={busy} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve escrow deposit"}</button>
-        : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
+        : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve escrow deposit"}</button>
+        : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
         : saved.stage === "APPROVAL_REQUESTED" || saved.stage === "DEPOSIT_REQUESTED" ? <p className="mt-6 text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p>
-        : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked."))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold">Check approval</button>}</div>}
+        : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" disabled={!online} onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked."))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check approval</button>}</div>}
     </div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
   </>;

@@ -2,6 +2,7 @@
 
 import { getIdentityToken } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState } from "react";
+import { useOnlineStatus } from "./pwa";
 import StreamCard from "./stream-card";
 
 type Payment = {
@@ -32,6 +33,7 @@ function money(units: string) {
 }
 
 export default function Activity({ apiOrigin, userId }: { apiOrigin: string; userId: string }) {
+  const online = useOnlineStatus();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -97,6 +99,7 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
   }, [refresh]);
 
   async function claimRequest(claim: Payment, action: "resend" | "refund") {
+    if (!online) { setError("Reconnect before updating this claim."); return; }
     if (!claim.claimId || claimAction) return;
     setClaimAction(claim.id);
     setError("");
@@ -137,7 +140,7 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
       <h1 className="text-4xl font-semibold tracking-tight">Activity</h1>
       {claims.length > 0 && <div className="mt-8 space-y-3">{claims.map((claim) => {
         const expired = claim.claimExpiry ? new Date(claim.claimExpiry).getTime() <= now : false;
-        return <article key={claim.id} className="rounded-2xl border border-stone-200 bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">Email claim</p><p className="mt-1 text-sm text-stone-500">{claim.state === "REFUNDED" ? "Refunded" : expired ? "Refund available" : "Waiting for recipient"}</p></div><p className="font-semibold">{money(claim.amountUnits)}</p></div>{claim.state === "OPEN" && <button type="button" disabled={claimAction === claim.id} onClick={() => void claimRequest(claim, expired ? "refund" : "resend")} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">{claimAction === claim.id ? "Working…" : expired ? "Request refund" : "Resend invite"}</button>}</article>;
+        return <article key={claim.id} className="rounded-2xl border border-stone-200 bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">Email claim</p><p className="mt-1 text-sm text-stone-500">{claim.state === "REFUNDED" ? "Refunded" : expired ? "Refund available" : "Waiting for recipient"}</p></div><p className="font-semibold">{money(claim.amountUnits)}</p></div>{claim.state === "OPEN" && <button type="button" disabled={!online || claimAction === claim.id} onClick={() => void claimRequest(claim, expired ? "refund" : "resend")} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">{claimAction === claim.id ? "Working…" : expired ? "Request refund" : "Resend invite"}</button>}</article>;
       })}</div>}
       <div className="mt-8 space-y-3">
         {threads.map((thread) => <button key={thread.id} type="button" onClick={() => { setSelected(thread.id); setPayments([]); setLoading(true); }} className="flex min-h-20 w-full items-center justify-between rounded-2xl border border-stone-200 bg-white p-5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">

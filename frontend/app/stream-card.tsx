@@ -3,6 +3,7 @@
 import { getIdentityToken, useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useOnlineStatus } from "./pwa";
 import { checkedStoredStreamAction, checkedStreamAction, type SavedStreamAction, type StreamAction, type StreamIntent } from "./stream-plan";
 
 type StreamDetail = StreamIntent & { chainState: null | {
@@ -13,6 +14,7 @@ type StreamDetail = StreamIntent & { chainState: null | {
 export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id: string; apiOrigin: string; userId: string; decimals?: number }) {
   const { sendTransaction } = useSendTransaction();
   const { wallets } = useWallets();
+  const online = useOnlineStatus();
   const storageKey = `tea:stream-action:${userId}:${id}`;
   const [stream, setStream] = useState<StreamDetail | null>(null);
   const [clock, setClock] = useState(0);
@@ -41,7 +43,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
     setSaved(record);
   }, [storageKey]);
   const reconcile = useCallback(async (record: SavedStreamAction) => {
-    if (!record.actionId || !record.hash) return;
+    if (!online || !record.actionId || !record.hash) return;
     try {
       const identity = await getIdentityToken();
       if (!identity) throw new Error("Sign in again.");
@@ -60,7 +62,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The transaction was submitted. Confirmation is still being checked.");
     }
-  }, [apiOrigin, id, load, storageKey]);
+  }, [apiOrigin, id, load, online, storageKey]);
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
     const refresh = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 10000);
@@ -83,6 +85,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
     return { vested, available: vested > BigInt(state.withdrawnUnits) ? vested - BigInt(state.withdrawnUnits) : BigInt(0) };
   }, [anchor, clock, stream]);
   async function act(kind: "withdraw" | "cancel") {
+    if (!online) { setError("Reconnect before updating this stream."); return; }
     if (!stream?.streamId || (saved && saved.stage !== "PREPARING")) return;
     setBusy(true); setError("");
     try {
@@ -110,5 +113,5 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
   const walletAddress = wallets.find((item) => [stream.sender, stream.recipient].includes(item.address.toLowerCase()))?.address.toLowerCase();
   const canCollect = walletAddress === stream.recipient && estimate.available > BigInt(0);
   const canCancel = walletAddress === stream.sender && !stream.chainState.canceled && (!anchor || anchor.chainTimestamp + Math.max(0, Math.floor((clock - anchor.monotonic) / 1000)) < Number(stream.chainState.end));
-  return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Accrued estimate</p><p className="mt-1 font-semibold">{formatUnits(estimate.vested, decimals)}</p></div><div><p className="text-xs text-stone-500">Collected</p><p className="mt-1 font-semibold">{formatUnits(BigInt(stream.chainState.withdrawnUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{stream.chainState.canceled ? "Accrual stopped" : `Ends ${new Date(Number(stream.chainState.end) * 1000).toLocaleString()}`} · checked at block {stream.chainState.blockNumber}</p><div className="mt-4 flex gap-2">{saved?.stage === "PREPARING" ? <button type="button" disabled={busy} onClick={() => void act(saved.kind)} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Preparing…" : "Retry action setup"}</button> : saved?.stage === "WALLET_REQUESTED" ? <p className="text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold">Check status</button></div> : <>{canCollect && <button type="button" disabled={busy} onClick={() => void act("withdraw")} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(estimate.available, decimals)}</button>}{canCancel && <button type="button" disabled={busy} onClick={() => void act("cancel")} className="min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Stop stream</button>}</>}</div>{error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}</div>;
+  return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Accrued estimate</p><p className="mt-1 font-semibold">{formatUnits(estimate.vested, decimals)}</p></div><div><p className="text-xs text-stone-500">Collected</p><p className="mt-1 font-semibold">{formatUnits(BigInt(stream.chainState.withdrawnUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{stream.chainState.canceled ? "Accrual stopped" : `Ends ${new Date(Number(stream.chainState.end) * 1000).toLocaleString()}`} · checked at block {stream.chainState.blockNumber}</p><div className="mt-4 flex gap-2">{saved?.stage === "PREPARING" ? <button type="button" disabled={busy || !online} onClick={() => void act(saved.kind)} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Preparing…" : "Retry action setup"}</button> : saved?.stage === "WALLET_REQUESTED" ? <p className="text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" disabled={!online} onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button></div> : <>{canCollect && <button type="button" disabled={busy || !online} onClick={() => void act("withdraw")} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(estimate.available, decimals)}</button>}{canCancel && <button type="button" disabled={busy || !online} onClick={() => void act("cancel")} className="min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Stop stream</button>}</>}</div>{error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}</div>;
 }
