@@ -1,12 +1,18 @@
 # TEA frontend
 
-Install and run this app from `frontend/`. Copy `.env.example` to `.env.local`, set the public Privy app ID, and enable email login, identity tokens, and Ethereum embedded wallets for that app before running:
+Install and run this app from `frontend/`. Copy `.env.example` to `.env`, set the public Privy app ID, and enable email login, identity tokens, and Ethereum embedded wallets for that app before running:
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-The app runs at <http://127.0.0.1:3000>. Build with `pnpm build` and check lint with `pnpm lint`. Backend dependencies are installed separately in `backend/`.
+The app runs at <http://127.0.0.1:3000>. Backend dependencies are installed separately in `backend/`. Run the browser checks after a production build:
 
-The onboarding screen uses Privy email sign-in, creates an embedded EVM wallet, syncs its verified identity to the backend, and reserves a handle. Home reads the token balance at a specific block and offers local Anvil test funds on chain ID 31337. The mobile shell has Home, Activity and Profile navigation; Activity explicitly says history is not available yet. Payment screens and live sponsorship verification are still in progress; the browser journey has not been tested with real Privy credentials.
+```sh
+pnpm exec playwright install chromium
+pnpm build
+pnpm test:e2e
+```
+
+The mobile PWA supports Privy onboarding, direct payments, email claims, funded streams, private activity, reload recovery, and offline transaction blocking. The checked-in browser suite covers the public shell at 320, 390, 768, and 1280 CSS pixels. A live two-user Privy journey still requires controlled test emails and target-network sponsorship.
