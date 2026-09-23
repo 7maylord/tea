@@ -62,7 +62,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const refreshAfterPayment = useCallback(() => setBalanceVersion((value) => value + 1), []);
 
   useEffect(() => {
-    if (!ready || !authenticated || !did || !identityToken || !hasWallet) return;
+    if (!online || !ready || !authenticated || !did || !identityToken || !hasWallet) return;
     const controller = new AbortController();
     void fetch(`${apiOrigin}/v1/session/sync`, {
       method: 'POST',
@@ -78,10 +78,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         if (!controller.signal.aborted) setError('Could not finish account setup. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, authenticated, did, hasWallet, identityToken, ready, retry]);
+  }, [apiOrigin, authenticated, did, hasWallet, identityToken, online, ready, retry]);
 
   useEffect(() => {
-    if (view !== 'home' || !session?.handle || !identityToken) return;
+    if (!online || view !== 'home' || !session?.handle || !identityToken) return;
     const controller = new AbortController();
     void fetch(`${apiOrigin}/v1/balance`, {
       headers: { 'privy-id-token': identityToken },
@@ -97,7 +97,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, balanceVersion, identityToken, session?.handle, session?.id, view]);
+  }, [apiOrigin, balanceVersion, identityToken, online, session?.handle, session?.id, view]);
 
   async function finishWallet() {
     setBusy(true);

@@ -64,11 +64,12 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
     }
   }, [apiOrigin, id, load, online, storageKey]);
   useEffect(() => {
+    if (!online) return;
     const initial = window.setTimeout(() => void load(), 0);
     const refresh = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 10000);
     const tick = window.setInterval(() => setClock(performance.now()), 1000);
     return () => { window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(tick); };
-  }, [load]);
+  }, [load, online]);
   useEffect(() => {
     if (saved?.stage !== "SUBMITTED") return;
     const initial = window.setTimeout(() => void reconcile(saved), 0);

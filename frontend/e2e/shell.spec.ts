@@ -23,4 +23,5 @@ test("installed shell loads offline and blocks sign-in", async ({ context, page 
   const signIn = page.getByRole("button", { name: "Continue with email" });
   if (await signIn.isVisible()) await expect(signIn).toBeDisabled();
   await context.setOffline(false);
+  await expect(page.getByText("You are offline. Payments are paused until you reconnect.")).toBeHidden();
 });

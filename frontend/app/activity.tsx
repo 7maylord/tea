@@ -83,6 +83,7 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
   }, [apiOrigin, selected]);
 
   useEffect(() => {
+    if (!online) return;
     const controller = new AbortController();
     const initial = window.setTimeout(() => void refresh(controller.signal), 0);
     const poll = window.setInterval(() => {
@@ -96,7 +97,7 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
       window.clearInterval(poll);
       window.removeEventListener("focus", onFocus);
     };
-  }, [refresh]);
+  }, [online, refresh]);
 
   async function claimRequest(claim: Payment, action: "resend" | "refund") {
     if (!online) { setError("Reconnect before updating this claim."); return; }
