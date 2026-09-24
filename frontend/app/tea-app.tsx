@@ -202,7 +202,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between">
         <span className="text-3xl font-semibold tracking-tight">tea.</span>
-        {ready && authenticated && !session?.handle && <button type="button" disabled={busy} onClick={() => void signOut()} className="rounded-full px-3 py-2 text-sm font-medium text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>}
+        {ready && authenticated && !session?.handle && <button type="button" disabled={busy} onClick={() => void signOut()} className="min-h-11 rounded-full px-3 text-sm font-medium text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>}
       </header>
 
       <section className="flex flex-1 flex-col justify-center py-12">

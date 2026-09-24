@@ -161,7 +161,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   }
 
   return <>
-    <button type="button" onClick={onBack} className="mb-5 self-start text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit payment"}</button>
+    <button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit payment"}</button>
     <h1 className="text-4xl font-semibold tracking-tight">Send by email</h1>
     <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6">
       <p className="text-sm text-stone-500">Recipient</p><p className="mt-1 break-all font-semibold">{email}</p>

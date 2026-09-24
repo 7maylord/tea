@@ -122,7 +122,7 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
 
   return <>
     {selected ? <>
-      <button type="button" onClick={() => { setSelected(null); setLoading(true); }} className="mb-5 self-start text-sm font-semibold text-orange-700">← All activity</button>
+      <button type="button" onClick={() => { setSelected(null); setLoading(true); }} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← All activity</button>
       <h1 className="text-4xl font-semibold tracking-tight">{counterparty ? `@${counterparty}` : "Payment thread"}</h1>
       {!indexerAvailable && payments.some((payment) => payment.state === "CONFIRMED") && <p role="status" className="mt-4 text-sm text-stone-600">Confirmed payments may take a moment to appear in activity.</p>}
       <div className="mt-8 space-y-3">
@@ -154,6 +154,6 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
     {loading && <p role="status" className="mt-5 text-sm text-stone-600">Loading activity…</p>}
     {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
     {nextCursor && !loading && <button type="button" onClick={() => { setLoading(true); void refresh(undefined, nextCursor); }} className="mt-5 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold">Load more</button>}
-    {error && <div role="alert" className="mt-5 text-sm text-red-800">{error} <button type="button" onClick={() => void refresh()} className="font-semibold underline">Retry</button></div>}
+    {error && <div role="alert" className="mt-5 text-sm text-red-800">{error} <button type="button" onClick={() => void refresh()} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
   </>;
 }

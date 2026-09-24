@@ -4,6 +4,9 @@ test("public routes fit the viewport and keep claim responses private", async ({
   await page.goto("/");
   await expect(page).toHaveTitle("TEA");
   await expect(page.locator("link[rel=manifest]")).toHaveAttribute("href", "/manifest.webmanifest");
+  const signIn = page.getByRole("button", { name: "Continue with email" });
+  await expect(signIn).toBeVisible();
+  expect((await signIn.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   const claim = await page.goto("/claim/not-a-valid-token");
