@@ -22,7 +22,10 @@ From the repository root, initialize dependencies with `git submodule update --i
 forge build --offline
 forge test --offline
 forge fmt --check
+python3 test/check_indexer_events.py
 ```
+
+The stateful accounting invariant randomizes funding, time advancement, stream collection/cancellation and claim/refund settlement across both contracts. It checks that every deposited unit is paid or held as a backed liability. The indexer check rejects stale exported ABIs and lifecycle subscription/handler drift; it does not replace live indexed-receipt verification after deployment.
 
 `script/TeaStream.s.sol` deploys with the token address supplied through `SETTLEMENT_TOKEN`. Verify the network, token code and decimals, deployer account, and sponsorship path before using it on a testnet. Record the deployed address, bytecode and transaction in `docs/integrations.md`. No deployment is performed by the local test suite.
 
