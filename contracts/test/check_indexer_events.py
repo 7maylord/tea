@@ -6,6 +6,7 @@ root = Path(__file__).resolve().parents[2]
 config = (root / 'indexer/config.yaml').read_text()
 handlers = (root / 'indexer/src/handlers/events.ts').read_text()
 required = {
+    'TeaDateUnlock': ['LockCreated', 'LockWithdrawn'],
     'TeaStream': ['StreamCreated', 'StreamWithdrawn', 'StreamCanceled'],
     'TeaClaimEscrow': ['ClaimDeposited', 'ClaimPaid', 'ClaimRefunded'],
 }
@@ -24,4 +25,4 @@ for contract, names in required.items():
         assert f"contract: '{contract}', event: '{name}'" in handlers, f'Missing handler: {name}'
 assert 'event: "Transfer(address indexed from, address indexed to, uint256 value)"' in config
 assert "contract: 'SettlementToken', event: 'Transfer'" in handlers
-print('ABIs and all seven payment lifecycle subscriptions agree.')
+print('ABIs and all nine payment lifecycle subscriptions agree.')

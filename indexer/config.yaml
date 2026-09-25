@@ -16,6 +16,10 @@ contracts:
       - event: "ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)"
       - event: "ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, uint256 amount)"
       - event: "ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)"
+  - name: TeaDateUnlock
+    events:
+      - event: "LockCreated(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount, uint64 unlockAt)"
+      - event: "LockWithdrawn(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount)"
 chains:
   - id: 31337
     rpc: ${ENVIO_RPC_URL:-http://127.0.0.1:8545}
@@ -27,3 +31,5 @@ chains:
         address: ${TEA_STREAM_ADDRESS:-0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512}
       - name: TeaClaimEscrow
         address: ${CLAIM_ESCROW_ADDRESS:-0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0}
+      - name: TeaDateUnlock
+        address: ${TEA_DATE_UNLOCK_ADDRESS:-0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9}

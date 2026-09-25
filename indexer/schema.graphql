@@ -11,6 +11,8 @@ type ChainEvent {
   fromAddress: String
   toAddress: String
   amountUnits: BigInt
+  lockId: BigInt
+  unlockAt: BigInt
   streamId: BigInt
   claimId: String
   start: BigInt

@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script} from "forge-std/Script.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {TeaDateUnlock} from "../src/TeaDateUnlock.sol";
 import {TeaStream} from "../src/TeaStream.sol";
 import {TeaClaimEscrow} from "../src/TeaClaimEscrow.sol";
 
@@ -30,8 +31,10 @@ contract LocalDeployScript is Script {
         MockTestUSD token = new MockTestUSD();
         TeaStream stream = new TeaStream(token);
         TeaClaimEscrow claimEscrow = new TeaClaimEscrow(token, localAccount, localAccount);
+        TeaDateUnlock dateUnlock = new TeaDateUnlock(token);
         vm.stopBroadcast();
         console2.log("MockTestUSD:", address(token));
+        console2.log("TeaDateUnlock:", address(dateUnlock));
         console2.log("TeaStream:", address(stream));
         console2.log("TeaClaimEscrow:", address(claimEscrow));
     }

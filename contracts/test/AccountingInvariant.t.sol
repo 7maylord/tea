@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {TeaDateUnlock} from "../src/TeaDateUnlock.sol";
 import {TeaStream} from "../src/TeaStream.sol";
 import {TeaClaimEscrow} from "../src/TeaClaimEscrow.sol";
 import {TestToken} from "./TeaStream.t.sol";
@@ -9,6 +10,7 @@ import {TestToken} from "./TeaStream.t.sol";
 contract AccountingHandler is Test {
     TestToken public token;
     TeaStream public stream;
+    TeaDateUnlock public dateUnlock;
     TeaClaimEscrow public escrow;
     uint256 public deposited;
     uint256 public paid;
@@ -18,6 +20,8 @@ contract AccountingHandler is Test {
     constructor() {
         token = new TestToken();
         stream = new TeaStream(token);
+        dateUnlock = new TeaDateUnlock(token);
+        token.approve(address(dateUnlock), type(uint256).max);
         escrow = new TeaClaimEscrow(token, vm.addr(11), address(this));
         recipient = vm.addr(12);
         token.approve(address(stream), type(uint256).max);
@@ -30,6 +34,22 @@ contract AccountingHandler is Test {
         if (email) escrow.deposit(bytes32(++claimCount), bytes32(uint256(1)), amount);
         else stream.create(recipient, amount, uint64(bound(rawDuration, 1, 30 days)));
         deposited += amount;
+    }
+
+    function fundLock(uint96 rawAmount, uint32 delay) external {
+        uint256 amount = bound(rawAmount, 1, 1e18);
+        token.mint(address(this), amount);
+        dateUnlock.create(recipient, amount, uint64(block.timestamp + bound(delay, 1, 30 days)));
+        deposited += amount;
+    }
+
+    function collectLock(uint256 seed) external {
+        uint256 count = dateUnlock.nextLockId() - 1;
+        if (count == 0) return;
+        uint256 id = seed % count + 1;
+        if (dateUnlock.withdrawable(id) == 0) return;
+        vm.prank(recipient);
+        paid += dateUnlock.withdraw(id);
     }
 
     function advance(uint32 elapsed) external {
@@ -79,11 +99,13 @@ contract AccountingInvariantTest is Test {
     function setUp() public {
         handler = new AccountingHandler();
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](4);
+        bytes4[] memory selectors = new bytes4[](6);
         selectors[0] = AccountingHandler.fund.selector;
         selectors[1] = AccountingHandler.advance.selector;
         selectors[2] = AccountingHandler.collect.selector;
         selectors[3] = AccountingHandler.settleClaim.selector;
+        selectors[4] = AccountingHandler.fundLock.selector;
+        selectors[5] = AccountingHandler.collectLock.selector;
         targetSelector(FuzzSelector(address(handler), selectors));
     }
 
@@ -91,7 +113,11 @@ contract AccountingInvariantTest is Test {
         TeaStream stream = handler.stream();
         TeaClaimEscrow escrow = handler.escrow();
         TestToken token = handler.token();
-        assertEq(handler.deposited(), handler.paid() + stream.totalLiability() + escrow.totalLiability());
+        assertEq(token.balanceOf(address(handler.dateUnlock())), handler.dateUnlock().totalLiability());
+        assertEq(
+            handler.deposited(),
+            handler.paid() + stream.totalLiability() + escrow.totalLiability() + handler.dateUnlock().totalLiability()
+        );
         assertEq(token.balanceOf(address(stream)), stream.totalLiability());
         assertEq(token.balanceOf(address(escrow)), escrow.totalLiability());
         assertEq(token.balanceOf(address(handler)) + token.balanceOf(handler.recipient()), handler.paid());

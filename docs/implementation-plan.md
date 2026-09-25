@@ -1,8 +1,8 @@
 # TEA implementation plan
 
-Delivery order revised 25 September 2026: finish and verify the required contract package first, deploy it on Monad testnet, validate Envio against those deployment addresses and start blocks, then resume frontend/backend integration. Existing app work remains in place. Required application contracts remain TeaStream and TeaClaimEscrow; direct send uses ERC-20 Transfer, split remains an offchain ledger, and optional P1 date unlock stays deferred. Deployment requires a funded deployer account, selected settlement token, identity signer and admin addresses. Do not substitute Anvil's public development keys or addresses.
+Delivery order revised 25 September 2026: finish and verify the required contract package first, deploy it on Monad testnet, validate Envio against those deployment addresses and start blocks, then resume frontend/backend integration. Existing app work remains in place. Required application contracts are TeaStream, TeaClaimEscrow and TeaDateUnlock; direct send uses ERC-20 Transfer and split remains an offchain ledger. The user has promoted date unlock from optional P1 to required scope. Deployment requires a funded deployer account, selected settlement token, identity signer and admin addresses. Do not substitute Anvil's public development keys or addresses.
 
-Status: in progress. The P0 contract package is complete locally: TeaStream and TeaClaimEscrow pass Foundry and Anvil tests; direct send uses the settlement token's ordinary ERC-20 transfer, and the P1 split design requires no pooled contract. The backend verifies direct payments, claims, refunds and stream creation against Anvil; Envio indexes their public events and supplies canonical direct, claim-lifecycle and stream receipts to private activity and threads. Mobile Activity reads those threads with polling; Send supports direct transfer, escrow deposits for unregistered email, and funded stream creation; the invite page verifies claim acceptance; stream cards expose collect and stop actions. Target-network deployment, live two-user browser verification, sponsorship, and Gates A/B live verification remain open.
+Status: in progress. TeaStream and TeaClaimEscrow pass Foundry and Anvil tests; TeaDateUnlock adds funded, non-cancelable, all-at-once release with Foundry tests and Envio lifecycle handlers. Date-unlock backend/frontend integration and live indexing remain open; direct send uses the settlement token's ordinary ERC-20 transfer, and the P1 split design requires no pooled contract. The backend verifies direct payments, claims, refunds and stream creation against Anvil; Envio indexes their public events and supplies canonical direct, claim-lifecycle and stream receipts to private activity and threads. Mobile Activity reads those threads with polling; Send supports direct transfer, escrow deposits for unregistered email, and funded stream creation; the invite page verifies claim acceptance; stream cards expose collect and stop actions. Target-network deployment, live two-user browser verification, sponsorship, and Gates A/B live verification remain open.
 
 Based on `TEA.md` v1.0 and the user's instructions to build our own streaming contract, keep NestJS on Express, and install the frontend and backend separately. Those decisions supersede the Sablier requirements in sections 11, 13, 18, 20–23 and 25, the Fastify choice in section 11, and the root pnpm workspace in sections 11–12. All other P0 requirements remain in scope. Dates below are targets; the submission cutoff still needs official verification.
 
@@ -12,7 +12,7 @@ The repository has a Next.js frontend starter, a NestJS backend starter using Ex
 
 For local end-to-end checks, run Anvil at chain ID 31337 and Postgres/Redis through Docker Compose as described in `docs/local-development.md`. Exercise two app users against actual local transactions, then restart the API/worker and retry pending operations. These checks supplement, rather than replace, target-network account and sponsorship verification in Gates A and B.
 
-Deliver P0 on test funds: onboarding, sponsored direct sends, email claims/refunds, fully funded streams, private threads, Envio receipts, and mobile recovery. P1 remains disabled until all P0 gates pass. Mainnet is a separate reviewed release.
+Deliver P0 on test funds: onboarding, sponsored direct sends, email claims/refunds, fully funded streams, date unlock, private threads, Envio receipts, and mobile recovery. P1 remains disabled until all P0 gates pass. Mainnet is a separate reviewed release.
 
 `TEA.md` is currently ignored by Git. Keep this plan's streaming decision tracked; decide whether to track the source specification during repository setup. Existing uncommitted files must be reviewed, not swept into a blanket commit.
 
@@ -30,6 +30,12 @@ Use overflow-safe integer multiplication/division for `floor(deposit * elapsed /
 Pause, if included, blocks only new stream creation. It must not block withdrawals or sender cancellation. Document control and trust assumptions. Native account authorization follows Gate A: the settlement account calls the contract; the relayer gets no unrestricted authority over users' funds.
 
 The chain package implements the spec's create/withdraw/cancel/read adapter against TeaStream's own ABI. Replace `SABLIER_ADDRESS` and `SABLIER_VERSION` with `TEA_STREAM_ADDRESS` and a recorded contract release/ABI version. Envio indexes TeaStream lifecycle events. This adds contract ownership and security work; it does not justify reducing the required accounting tests.
+
+## Required date-unlock checkpoints
+
+1. Contract: fund an immutable recipient and future UTC timestamp; release the full amount once, recipient-only, with no cancellation. Verify boundary, failed-transfer rollback, fuzz and accounting invariant tests; export ABI and index creation/withdrawal events. Commit: `feat: add funded date unlock contracts and indexing`.
+2. Monad deployment: deploy all three application contracts and test token, record addresses/start blocks, execute date-lock creation and collection, and verify Envio receipts alongside send/claim/stream lifecycles. Commit: `docs: record verified monad contract deployments`.
+3. Backend then frontend: add date-lock intents, exact transaction/receipt reconciliation, available-balance accounting, date/time review and recipient collection. Verify two-user creation, early-collection rejection, post-date full collection and retry recovery. Commit backend and frontend separately before release hardening.
 
 ## Checkpoints and delivery order
 
@@ -71,4 +77,4 @@ Gate A blocks dependent money flows if authorization or sponsorship is unsupport
 
 If custom streams cannot be delivered safely, explicitly revise the demo to Send + Claim with the user; do not silently drop a P0 requirement. If deadlines slip, cut optional work first and report the revised schedule.
 
-After all P0 gates pass, consider one P1 feature with remaining time: pay link/QR, then split ledger, then verified Aurora/AUSD, then date unlock. External integration work requires Gate C. A date unlock needs separately tested all-at-once contract semantics; it is not a disguised linear stream.
+After all P0 gates pass, consider one P1 feature with remaining time: pay link/QR, then split ledger, then verified Aurora/AUSD. External integration work requires Gate C. Date unlock is required and uses separately tested all-at-once contract semantics.

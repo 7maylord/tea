@@ -25,6 +25,8 @@ function base(event: EventMeta, eventType: string): ChainEvent {
     fromAddress: undefined,
     toAddress: undefined,
     amountUnits: undefined,
+    lockId: undefined,
+    unlockAt: undefined,
     streamId: undefined,
     claimId: undefined,
     start: undefined,
@@ -123,6 +125,33 @@ indexer.onEvent(
       toAddress: event.params.payer,
       amountUnits: event.params.amount,
       claimId: event.params.claimId,
+    });
+  },
+);
+
+indexer.onEvent(
+  { contract: 'TeaDateUnlock', event: 'LockCreated', fields },
+  async ({ event, context }) => {
+    context.ChainEvent.set({
+      ...base(event, 'LOCK_CREATED'),
+      fromAddress: event.params.sender,
+      toAddress: event.params.recipient,
+      amountUnits: event.params.amount,
+      lockId: event.params.lockId,
+      unlockAt: event.params.unlockAt,
+    });
+  },
+);
+
+indexer.onEvent(
+  { contract: 'TeaDateUnlock', event: 'LockWithdrawn', fields },
+  async ({ event, context }) => {
+    context.ChainEvent.set({
+      ...base(event, 'LOCK_WITHDRAWN'),
+      fromAddress: event.params.sender,
+      toAddress: event.params.recipient,
+      amountUnits: event.params.amount,
+      lockId: event.params.lockId,
     });
   },
 );
