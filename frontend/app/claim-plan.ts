@@ -1,6 +1,10 @@
-import { decodeFunctionData, erc20Abi, isAddress, parseAbi, type Hex } from "viem";
+import { decodeFunctionData, isAddress, type Abi, type Hex } from "viem";
+import escrowAbiJson from "../abi/TeaClaimEscrow.json" with { type: "json" };
+import tokenAbiJson from "../abi/TestUSD.json" with { type: "json" };
 
-const escrowAbi = parseAbi(["function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)"]);
+const escrowAbi = escrowAbiJson as Abi;
+const tokenAbi = tokenAbiJson as Abi;
+type DecodedCall<Name extends string, Args extends readonly unknown[]> = { functionName: Name; args: Args };
 
 export type ClaimIntent = {
   id: Hex;
@@ -28,8 +32,8 @@ export function checkedClaimPlan(intent: ClaimIntent, account: string, token: st
     throw new Error("Claim details changed. Start again.");
   }
   try {
-    const approve = decodeFunctionData({ abi: erc20Abi, data: plan.approve.data });
-    const deposit = decodeFunctionData({ abi: escrowAbi, data: plan.deposit.data });
+    const approve = decodeFunctionData({ abi: tokenAbi, data: plan.approve.data }) as DecodedCall<"approve", readonly [string, bigint]>;
+    const deposit = decodeFunctionData({ abi: escrowAbi, data: plan.deposit.data }) as DecodedCall<"deposit", readonly [Hex, Hex, bigint]>;
     if (approve.functionName !== "approve" || approve.args[0].toLowerCase() !== intent.escrow.toLowerCase() ||
       approve.args[1] !== BigInt(amountUnits) || deposit.functionName !== "deposit" ||
       deposit.args[0] !== intent.id || deposit.args[2] !== BigInt(amountUnits)) throw new Error("Wrong plan");

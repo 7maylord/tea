@@ -18,33 +18,26 @@ import {
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   encodeFunctionData,
-  erc20Abi,
   http,
   isAddress,
-  parseAbi,
-  parseEventLogs,
+  parseEventLogs as parseEventLogsBase,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
+import streamAbiJson from '../abi/TeaStream.json';
+import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
 import { upsertThread } from '../payments/thread';
 import { SessionService } from '../identity/session.service';
 
-const streamAbi = parseAbi([
-  'function token() view returns (address)',
-  'function create(address recipient, uint256 amount, uint64 duration) returns (uint256 streamId)',
-  'function streams(uint256 streamId) view returns (address sender, address recipient, uint256 deposit, uint256 withdrawn, uint256 entitlement, uint64 start, uint64 end, bool canceled)',
-  'function withdrawable(uint256 streamId) view returns (uint256)',
-  'function withdraw(uint256 streamId) returns (uint256 amount)',
-  'function cancel(uint256 streamId) returns (uint256 refund)',
-  'event StreamCreated(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 deposit, uint64 start, uint64 end)',
-  'event StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount)',
-  'event StreamCanceled(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 recipientEntitlement, uint256 senderRefund)',
-]);
+const streamAbi = streamAbiJson as any;
+const tokenAbi = tokenAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
+const parseEventLogs = parseEventLogsBase as any;
 const idPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -92,7 +85,7 @@ export class StreamsService implements OnModuleDestroy {
               to: intent.tokenAddress,
               value: '0',
               data: encodeFunctionData({
-                abi: erc20Abi,
+                abi: tokenAbi,
                 functionName: 'approve',
                 args: [intent.streamAddress as Address, amount],
               }),
@@ -379,10 +372,11 @@ export class StreamsService implements OnModuleDestroy {
           log.args.sender?.toLowerCase() === intent.payerAddress &&
           log.args.recipient?.toLowerCase() === intent.recipientAddress &&
           log.args.deposit === BigInt(intent.amountUnits.toString()) &&
-          log.args.end - log.args.start === intent.durationSeconds,
+          BigInt(log.args.end) - BigInt(log.args.start) ===
+            BigInt(intent.durationSeconds!.toString()),
       );
       const transferred = parseEventLogs({
-        abi: erc20Abi,
+        abi: tokenAbi,
         eventName: 'Transfer',
         logs: receipt.logs,
       }).some(
@@ -447,7 +441,8 @@ export class StreamsService implements OnModuleDestroy {
         stream[0].toLowerCase() !== intent.payerAddress ||
         stream[1].toLowerCase() !== intent.recipientAddress ||
         stream[2] !== BigInt(intent.amountUnits.toString()) ||
-        stream[6] - stream[5] !== intent.durationSeconds
+        BigInt(stream[6]) - BigInt(stream[5]) !==
+          BigInt(intent.durationSeconds.toString())
       )
         throw new Error('Stream state mismatch');
       return {
@@ -704,7 +699,7 @@ export class StreamsService implements OnModuleDestroy {
         );
         const transferred = event
           ? parseEventLogs({
-              abi: erc20Abi,
+              abi: tokenAbi,
               eventName: 'Transfer',
               logs: receipt.logs,
             }).some(
@@ -739,7 +734,7 @@ export class StreamsService implements OnModuleDestroy {
         event?.args.senderRefund === 0n ||
         (event
           ? parseEventLogs({
-              abi: erc20Abi,
+              abi: tokenAbi,
               eventName: 'Transfer',
               logs: receipt.logs,
             }).some(

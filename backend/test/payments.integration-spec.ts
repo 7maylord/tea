@@ -6,10 +6,8 @@ import {
   createPublicClient,
   createWalletClient,
   decodeFunctionData,
-  erc20Abi,
   http,
   parseEther,
-  parseAbi,
   type Address,
   type Hex,
 } from 'viem';
@@ -18,8 +16,10 @@ import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import tokenAbiJson from '../src/abi/TestUSD.json';
 import { SessionService } from '../src/identity/session.service';
 
+const tokenAbi = tokenAbiJson as any;
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
 );
@@ -87,7 +87,7 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     const hash = await wallet.writeContract({
       account: sender,
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: parseAbi(['function mint(address recipient, uint256 amount)']),
+      abi: tokenAbi,
       functionName: 'mint',
       args: [payerAddress, 21_000_000n],
     });
@@ -107,7 +107,7 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     });
     oldTransferHash = await senderWallet.writeContract({
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: erc20Abi,
+      abi: tokenAbi,
       functionName: 'transfer',
       args: [recipientAddress, 1_000_000n],
     });
@@ -156,7 +156,7 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     expect(intent.plan.chainId).toBe(31337);
     expect(intent.plan.to).toBe(process.env.SETTLEMENT_TOKEN?.toLowerCase());
     const decoded = decodeFunctionData({
-      abi: erc20Abi,
+      abi: tokenAbi,
       data: intent.plan.data,
     });
     expect(decoded.functionName).toBe('transfer');
@@ -251,7 +251,7 @@ describe('direct payment intents (Postgres and Anvil)', () => {
     });
     const transferHash = await senderWallet.writeContract({
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: erc20Abi,
+      abi: tokenAbi,
       functionName: 'transfer',
       args: [recipientAddress, 15_000_000n],
     });

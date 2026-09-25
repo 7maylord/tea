@@ -7,9 +7,7 @@ import {
   createTestClient,
   createWalletClient,
   decodeFunctionData,
-  erc20Abi,
   http,
-  parseAbi,
   type Address,
 } from 'viem';
 import { foundry } from 'viem/chains';
@@ -17,6 +15,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import escrowAbiJson from '../src/abi/TeaClaimEscrow.json';
+import tokenAbiJson from '../src/abi/TestUSD.json';
 import { processNextClaimInvite } from '../src/claims/invite.worker';
 import { processNextClaimRefund } from '../src/claims/refund.worker';
 import { processNextClaimRelay } from '../src/claims/relay.worker';
@@ -32,14 +32,8 @@ import {
 } from '../src/identity/identity.crypto';
 import { SessionService } from '../src/identity/session.service';
 
-const depositAbi = parseAbi([
-  'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
-]);
-const signatureAbi = parseAbi([
-  'function signerEpoch() view returns (uint64)',
-  'function authorizationDigest((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization) view returns (bytes32)',
-  'function acceptanceDigest(bytes32 signedAuthorizationDigest) view returns (bytes32)',
-]);
+const escrowAbi = escrowAbiJson as any;
+const tokenAbi = tokenAbiJson as any;
 const payerAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
 );
@@ -108,7 +102,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     const hash = await wallet.writeContract({
       account: sender,
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: parseAbi(['function mint(address recipient, uint256 amount)']),
+      abi: tokenAbi,
       functionName: 'mint',
       args: [payerAddress, 20_000_000n],
     });
@@ -196,7 +190,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
       process.env.CLAIM_ESCROW_ADDRESS?.toLowerCase(),
     );
     const approval = decodeFunctionData({
-      abi: erc20Abi,
+      abi: tokenAbi,
       data: claim.plan.approve.data,
     });
     expect(approval.functionName).toBe('approve');
@@ -205,7 +199,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     );
     expect(approval.args?.[1]).toBe(15_000_000n);
     const deposit = decodeFunctionData({
-      abi: depositAbi,
+      abi: escrowAbi,
       data: claim.plan.deposit.data,
     });
     expect(deposit.functionName).toBe('deposit');
@@ -423,7 +417,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
 
     const signerEpoch = await client.readContract({
       address: saved.escrowAddress as Address,
-      abi: signatureAbi,
+      abi: escrowAbi,
       functionName: 'signerEpoch',
     });
     const authorization = {
@@ -443,7 +437,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     );
     const onchainDigest = await client.readContract({
       address: saved.escrowAddress as Address,
-      abi: signatureAbi,
+      abi: escrowAbi,
       functionName: 'authorizationDigest',
       args: [authorization],
     });
@@ -456,7 +450,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(backendAcceptance).toBe(
       await client.readContract({
         address: saved.escrowAddress as Address,
-        abi: signatureAbi,
+        abi: escrowAbi,
         functionName: 'acceptanceDigest',
         args: [backendDigest],
       }),
@@ -629,7 +623,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(
       await client.readContract({
         address: saved.tokenAddress as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [recipientAccount.address],
       }),
@@ -816,7 +810,7 @@ describe('claim preparation (Postgres and Anvil)', () => {
     expect(
       await client.readContract({
         address: process.env.SETTLEMENT_TOKEN as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [payerAccount.address],
       }),

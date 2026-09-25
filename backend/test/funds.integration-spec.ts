@@ -3,7 +3,6 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import {
   createPublicClient,
-  erc20Abi,
   http,
   parseEther,
   type Address,
@@ -12,8 +11,10 @@ import {
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import tokenAbiJson from '../src/abi/TestUSD.json';
 import { SessionService } from '../src/identity/session.service';
 
+const tokenAbi = tokenAbiJson as any;
 const recipient = `0x${randomBytes(20).toString('hex')}`;
 const injectedRecipient = '0x000000000000000000000000000000000000dEaD';
 
@@ -67,7 +68,7 @@ describe('local test funds (Anvil)', () => {
     });
     const injectedBefore = await client.readContract({
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: erc20Abi,
+      abi: tokenAbi,
       functionName: 'balanceOf',
       args: [injectedRecipient],
     });
@@ -112,7 +113,7 @@ describe('local test funds (Anvil)', () => {
     expect(
       await client.readContract({
         address: process.env.SETTLEMENT_TOKEN as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [injectedRecipient],
       }),

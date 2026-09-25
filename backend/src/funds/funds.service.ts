@@ -5,21 +5,19 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   createWalletClient,
-  erc20Abi,
   http,
   isAddress,
   parseEther,
-  parseAbi,
   type Address,
 } from 'viem';
 import { foundry } from 'viem/chains';
+import tokenAbiJson from '../abi/TestUSD.json';
 import { SessionService } from '../identity/session.service';
 
-const faucetAbi = parseAbi([
-  'function mint(address recipient, uint256 amount)',
-]);
+const tokenAbi = tokenAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
 
 @Injectable()
 export class FundsService {
@@ -65,20 +63,20 @@ export class FundsService {
       const [units, decimals, symbol] = await Promise.all([
         client.readContract({
           address: token,
-          abi: erc20Abi,
+          abi: tokenAbi,
           functionName: 'balanceOf',
           args: [account.address as Address],
           blockNumber,
         }),
         client.readContract({
           address: token,
-          abi: erc20Abi,
+          abi: tokenAbi,
           functionName: 'decimals',
           blockNumber,
         }),
         client.readContract({
           address: token,
-          abi: erc20Abi,
+          abi: tokenAbi,
           functionName: 'symbol',
           blockNumber,
         }),
@@ -131,12 +129,12 @@ export class FundsService {
       const [name, decimals] = await Promise.all([
         publicClient.readContract({
           address: token,
-          abi: erc20Abi,
+          abi: tokenAbi,
           functionName: 'name',
         }),
         publicClient.readContract({
           address: token,
-          abi: erc20Abi,
+          abi: tokenAbi,
           functionName: 'decimals',
         }),
       ]);
@@ -164,7 +162,7 @@ export class FundsService {
       const hash = await wallet.writeContract({
         account: sender,
         address: token,
-        abi: faucetAbi,
+        abi: tokenAbi,
         functionName: 'mint',
         args: [user.account.address as Address, 20_000_000n],
       });

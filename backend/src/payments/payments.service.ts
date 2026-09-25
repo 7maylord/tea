@@ -16,21 +16,24 @@ import {
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   encodeFunctionData,
-  erc20Abi,
   http,
-  parseEventLogs,
+  parseEventLogs as parseEventLogsBase,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
+import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
 import { matchIndexedReceipt, type IndexedEvent } from './indexed-receipt';
 import { upsertThread } from './thread';
 
+const tokenAbi = tokenAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
+const parseEventLogs = parseEventLogsBase as any;
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -308,7 +311,7 @@ export class PaymentsService implements OnModuleDestroy {
             to: intent.tokenAddress,
             value: '0',
             data: encodeFunctionData({
-              abi: erc20Abi,
+              abi: tokenAbi,
               functionName: 'transfer',
               args: [
                 intent.recipientAddress as Address,
@@ -341,7 +344,7 @@ export class PaymentsService implements OnModuleDestroy {
         });
       if (!transaction) return { state: 'RECONCILING' };
       const expectedData = encodeFunctionData({
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'transfer',
         args: [
           intent.recipientAddress as Address,
@@ -372,7 +375,7 @@ export class PaymentsService implements OnModuleDestroy {
         throw new ConflictException('Transaction predates payment intent');
       }
       const transfers = parseEventLogs({
-        abi: erc20Abi,
+        abi: tokenAbi,
         eventName: 'Transfer',
         logs: receipt.logs,
       });

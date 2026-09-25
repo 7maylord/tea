@@ -1,4 +1,5 @@
-import { createPublicClient, erc20Abi, http, isAddress, keccak256 } from 'viem';
+import { createPublicClient, http, isAddress, keccak256 } from 'viem';
+import tokenAbi from '../src/abi/TestUSD.json' with { type: 'json' };
 
 const { RPC_URL, CHAIN_ID, SETTLEMENT_TOKEN, SETTLEMENT_TOKEN_DECIMALS } = process.env;
 const expectedChainId = Number(CHAIN_ID);
@@ -28,7 +29,7 @@ const [name, symbol, decimals] = await Promise.all(
   ['name', 'symbol', 'decimals'].map((functionName) =>
     client.readContract({
       address: SETTLEMENT_TOKEN,
-      abi: erc20Abi,
+      abi: tokenAbi,
       functionName,
       blockNumber,
     }),

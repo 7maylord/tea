@@ -1,27 +1,27 @@
 import { PrismaClient } from '@prisma/client';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   createWalletClient,
   defineChain,
-  erc20Abi,
+  getAbiItem,
   http,
-  parseAbi,
-  parseAbiItem,
-  parseEventLogs,
+  parseEventLogs as parseEventLogsBase,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import escrowAbiJson from '../abi/TeaClaimEscrow.json';
+import tokenAbiJson from '../abi/TestUSD.json';
 
-const escrowAbi = parseAbi([
-  'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
-  'function refund(bytes32 claimId)',
-  'event ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)',
-]);
-const claimRefundedEvent = parseAbiItem(
-  'event ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)',
-);
+const escrowAbi = escrowAbiJson as any;
+const tokenAbi = tokenAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
+const parseEventLogs = parseEventLogsBase as any;
+const claimRefundedEvent = getAbiItem({
+  abi: escrowAbi,
+  name: 'ClaimRefunded',
+}) as any;
 
 export async function processNextClaimRefund(
   db: PrismaClient,
@@ -214,7 +214,7 @@ export async function processNextClaimRefund(
           logs: receipt.logs,
         });
         const transfers = parseEventLogs({
-          abi: erc20Abi,
+          abi: tokenAbi,
           eventName: 'Transfer',
           logs: receipt.logs,
         });

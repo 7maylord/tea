@@ -6,29 +6,26 @@ import {
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   createWalletClient,
   defineChain,
+  getAbiItem,
   http,
-  parseAbi,
-  parseAbiItem,
   toHex,
   TransactionReceiptNotFoundError,
   type Address,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import escrowAbiJson from '../abi/TeaClaimEscrow.json';
 import { upsertThread } from '../payments/thread';
 
-const escrowAbi = parseAbi([
-  'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
-  'function nonces(bytes32 claimId) view returns (uint256)',
-  'function signerEpoch() view returns (uint64)',
-  'function claim((bytes32 claimId,bytes32 identityCommitment,address token,uint256 amount,address recipient,uint256 nonce,uint64 deadline,uint64 signerEpoch) authorization, bytes identitySignature, bytes recipientSignature)',
-]);
-const claimPaidEvent = parseAbiItem(
-  'event ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, uint256 amount)',
-);
+const escrowAbi = escrowAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
+const claimPaidEvent = getAbiItem({
+  abi: escrowAbi,
+  name: 'ClaimPaid',
+}) as any;
 
 async function recordClaimPayment(
   db: PrismaClient,

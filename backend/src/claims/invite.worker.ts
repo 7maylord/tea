@@ -1,19 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   http,
-  parseAbi,
   type Address,
   type Hex,
 } from 'viem';
+import escrowAbiJson from '../abi/TeaClaimEscrow.json';
 import { decryptIdentity, readIdentityKey } from '../identity/identity.crypto';
 import { processNextClaimRefund } from './refund.worker';
 import { processNextClaimRelay } from './relay.worker';
 
-const escrowAbi = parseAbi([
-  'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
-]);
+const escrowAbi = escrowAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
 
 export async function processNextClaimInvite(
   db: PrismaClient,

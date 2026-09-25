@@ -7,9 +7,7 @@ import {
   createTestClient,
   createWalletClient,
   decodeFunctionData,
-  erc20Abi,
   http,
-  parseAbi,
   type Address,
   type Hex,
 } from 'viem';
@@ -18,6 +16,8 @@ import { privateKeyToAccount } from 'viem/accounts';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
+import streamAbiJson from '../src/abi/TeaStream.json';
+import tokenAbiJson from '../src/abi/TestUSD.json';
 import { SessionService } from '../src/identity/session.service';
 
 const senderAccount = privateKeyToAccount(
@@ -26,10 +26,8 @@ const senderAccount = privateKeyToAccount(
 const recipientAccount = privateKeyToAccount(
   `0x${randomBytes(32).toString('hex')}`,
 );
-const createAbi = parseAbi([
-  'function create(address recipient, uint256 amount, uint64 duration) returns (uint256 streamId)',
-  'function streams(uint256 streamId) view returns (address sender, address recipient, uint256 deposit, uint256 withdrawn, uint256 entitlement, uint64 start, uint64 end, bool canceled)',
-]);
+const streamAbi = streamAbiJson as any;
+const tokenAbi = tokenAbiJson as any;
 
 describe('stream creation (Postgres and Anvil)', () => {
   const db = new PrismaClient();
@@ -85,7 +83,7 @@ describe('stream creation (Postgres and Anvil)', () => {
     const mint = await local.writeContract({
       account: faucet,
       address: process.env.SETTLEMENT_TOKEN as Address,
-      abi: parseAbi(['function mint(address recipient, uint256 amount)']),
+      abi: tokenAbi,
       functionName: 'mint',
       args: [senderAccount.address, 10_000_000n],
     });
@@ -155,7 +153,7 @@ describe('stream creation (Postgres and Anvil)', () => {
       process.env.TEA_STREAM_ADDRESS?.toLowerCase(),
     );
     const decoded = decodeFunctionData({
-      abi: createAbi,
+      abi: streamAbi,
       data: stream.plan.create.data,
     });
     expect(decoded.functionName).toBe('create');
@@ -230,7 +228,7 @@ describe('stream creation (Postgres and Anvil)', () => {
     expect(confirmed.txHash).toBe(createHash.toLowerCase());
     const onchain = await client.readContract({
       address: process.env.TEA_STREAM_ADDRESS as Address,
-      abi: createAbi,
+      abi: streamAbi,
       functionName: 'streams',
       args: [BigInt(confirmed.streamId)],
     });
@@ -262,7 +260,7 @@ describe('stream creation (Postgres and Anvil)', () => {
     expect(
       await client.readContract({
         address: process.env.SETTLEMENT_TOKEN as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [senderAccount.address],
       }),
@@ -427,13 +425,13 @@ describe('stream creation (Postgres and Anvil)', () => {
     const [senderBalance, recipientBalance] = await Promise.all([
       client.readContract({
         address: process.env.SETTLEMENT_TOKEN as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [senderAccount.address],
       }),
       client.readContract({
         address: process.env.SETTLEMENT_TOKEN as Address,
-        abi: erc20Abi,
+        abi: tokenAbi,
         functionName: 'balanceOf',
         args: [recipientAccount.address],
       }),

@@ -13,13 +13,11 @@ import {
 import { Claim, Prisma, PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  createPublicClient,
+  createPublicClient as createPublicClientBase,
   encodeFunctionData,
-  erc20Abi,
   http,
   isAddress,
-  parseAbi,
-  parseEventLogs,
+  parseEventLogs as parseEventLogsBase,
   toHex,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
@@ -27,6 +25,8 @@ import {
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import escrowAbiJson from '../abi/TeaClaimEscrow.json';
+import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
 import {
@@ -43,15 +43,10 @@ import {
   claimAuthorizationTypedData,
 } from './claim.typed-data';
 
-const escrowAbi = parseAbi([
-  'function token() view returns (address)',
-  'function deposit(bytes32 claimId, bytes32 commitment, uint256 amount)',
-  'function claims(bytes32 claimId) view returns (address payer, uint256 amount, uint64 expiry, bytes32 identityCommitment, uint8 status)',
-  'function nonces(bytes32 claimId) view returns (uint256)',
-  'function signerEpoch() view returns (uint64)',
-  'function identitySigner() view returns (address)',
-  'event ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)',
-]);
+const escrowAbi = escrowAbiJson as any;
+const tokenAbi = tokenAbiJson as any;
+const createPublicClient = createPublicClientBase as any;
+const parseEventLogs = parseEventLogsBase as any;
 
 @Injectable()
 export class ClaimsService implements OnModuleDestroy {
@@ -112,7 +107,7 @@ export class ClaimsService implements OnModuleDestroy {
               to: claim.tokenAddress,
               value: '0',
               data: encodeFunctionData({
-                abi: erc20Abi,
+                abi: tokenAbi,
                 functionName: 'approve',
                 args: [
                   claim.escrowAddress as Address,
@@ -481,7 +476,7 @@ export class ClaimsService implements OnModuleDestroy {
           log.args.amount === BigInt(claim.amountUnits.toString()),
       );
       const transfers = parseEventLogs({
-        abi: erc20Abi,
+        abi: tokenAbi,
         eventName: 'Transfer',
         logs: receipt.logs,
       });

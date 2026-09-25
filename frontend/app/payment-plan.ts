@@ -1,4 +1,8 @@
-import { decodeFunctionData, erc20Abi, isAddress, type Hex } from "viem";
+import { decodeFunctionData, isAddress, type Abi, type Hex } from "viem";
+import tokenAbiJson from "../abi/TestUSD.json" with { type: "json" };
+
+const tokenAbi = tokenAbiJson as Abi;
+type DecodedCall<Name extends string, Args extends readonly unknown[]> = { functionName: Name; args: Args };
 
 export type PaymentIntent = {
   id: string;
@@ -34,7 +38,7 @@ export function checkedTransferPlan(
     intent.amountUnits !== amountUnits || plan.value !== "0"
   ) throw new Error("Payment details changed. Start again.");
   try {
-    const decoded = decodeFunctionData({ abi: erc20Abi, data: plan.data });
+    const decoded = decodeFunctionData({ abi: tokenAbi, data: plan.data }) as DecodedCall<"transfer", readonly [string, bigint]>;
     if (
       decoded.functionName !== "transfer" ||
       decoded.args[0].toLowerCase() !== intent.recipient.toLowerCase() ||

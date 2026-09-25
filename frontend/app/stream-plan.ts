@@ -1,10 +1,10 @@
-import { decodeFunctionData, erc20Abi, isAddress, parseAbi, type Hex } from "viem";
+import { decodeFunctionData, isAddress, type Abi, type Hex } from "viem";
+import streamAbiJson from "../abi/TeaStream.json" with { type: "json" };
+import tokenAbiJson from "../abi/TestUSD.json" with { type: "json" };
 
-const streamAbi = parseAbi([
-  "function create(address recipient, uint256 amount, uint64 duration) returns (uint256 streamId)",
-  "function withdraw(uint256 streamId) returns (uint256 amount)",
-  "function cancel(uint256 streamId) returns (uint256 refund)",
-]);
+const streamAbi = streamAbiJson as Abi;
+const tokenAbi = tokenAbiJson as Abi;
+type DecodedCall<Name extends string, Args extends readonly unknown[]> = { functionName: Name; args: Args };
 export type StreamIntent = {
   id: string; state: string; chainId: number; token: string; streamContract: string;
   sender: string; recipient: string; amountUnits: string; durationSeconds: string; streamId: string | null;
@@ -33,8 +33,8 @@ export function checkedStreamPlan(intent: StreamIntent, account: string, token: 
     throw new Error("Stream details changed. Start again.");
   }
   try {
-    const approve = decodeFunctionData({ abi: erc20Abi, data: plan.approve.data });
-    const create = decodeFunctionData({ abi: streamAbi, data: plan.create.data });
+    const approve = decodeFunctionData({ abi: tokenAbi, data: plan.approve.data }) as DecodedCall<"approve", readonly [string, bigint]>;
+    const create = decodeFunctionData({ abi: streamAbi, data: plan.create.data }) as DecodedCall<"create", readonly [string, bigint, bigint]>;
     if (approve.functionName !== "approve" || approve.args[0].toLowerCase() !== intent.streamContract.toLowerCase() ||
       approve.args[1] !== BigInt(amountUnits) || create.functionName !== "create" ||
       create.args[0].toLowerCase() !== recipient.toLowerCase() || create.args[1] !== BigInt(amountUnits) ||
@@ -48,7 +48,7 @@ export function checkedStreamAction(action: StreamAction, kind: "withdraw" | "ca
   if (!uuidPattern.test(action.id) || action.kind !== kind || action.state !== "READY" || !plan || plan.chainId !== chainId || plan.from.toLowerCase() !== account.toLowerCase() ||
     plan.to.toLowerCase() !== contract.toLowerCase() || plan.value !== "0") throw new Error("Stream action changed. Refresh and try again.");
   try {
-    const decoded = decodeFunctionData({ abi: streamAbi, data: plan.data });
+    const decoded = decodeFunctionData({ abi: streamAbi, data: plan.data }) as DecodedCall<"withdraw" | "cancel", readonly [bigint]>;
     if (decoded.functionName !== action.kind || decoded.args[0] !== BigInt(streamId)) throw new Error("Wrong action");
   } catch { throw new Error("Stream action changed. Refresh and try again."); }
   return plan;

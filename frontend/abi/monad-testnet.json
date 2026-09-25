@@ -1,0 +1,8 @@
+{
+  "chainId": 10143,
+  "startBlock": 65515139,
+  "settlementToken": "0x82cE012544F85E33930C5272bdeAE76736A8F22b",
+  "teaStream": "0x3379CdE825960C49b456c62f6bb485902B7dA830",
+  "teaClaimEscrow": "0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814",
+  "teaDateUnlock": "0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84"
+}
