@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=./node_modules/envio/evm.schema.json
-name: tea-local
-description: TEA settlement events on local Anvil
+name: tea-monad-testnet
+description: TEA settlement events on Monad testnet
 address_format: lowercase
 contracts:
   - name: SettlementToken
@@ -21,15 +21,19 @@ contracts:
       - event: "LockCreated(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount, uint64 unlockAt)"
       - event: "LockWithdrawn(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount)"
 chains:
-  - id: 31337
-    rpc: ${ENVIO_RPC_URL:-http://127.0.0.1:8545}
-    start_block: 0
+  - id: 10143
+    rpc:
+      url: ${ENVIO_RPC_URL:-https://testnet-rpc.monad.xyz}
+      for: sync
+      initial_block_interval: 100
+      interval_ceiling: 100
+    start_block: 65515139
     contracts:
       - name: SettlementToken
-        address: ${SETTLEMENT_TOKEN:-0x5FbDB2315678afecb367f032d93F642f64180aa3}
+        address: ${SETTLEMENT_TOKEN:-0x82cE012544F85E33930C5272bdeAE76736A8F22b}
       - name: TeaStream
-        address: ${TEA_STREAM_ADDRESS:-0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512}
+        address: ${TEA_STREAM_ADDRESS:-0x3379CdE825960C49b456c62f6bb485902B7dA830}
       - name: TeaClaimEscrow
-        address: ${CLAIM_ESCROW_ADDRESS:-0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0}
+        address: ${CLAIM_ESCROW_ADDRESS:-0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814}
       - name: TeaDateUnlock
-        address: ${TEA_DATE_UNLOCK_ADDRESS:-0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9}
+        address: ${TEA_DATE_UNLOCK_ADDRESS:-0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84}
