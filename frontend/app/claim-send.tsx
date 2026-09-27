@@ -132,7 +132,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       save(record);
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      const sent = await sendTransaction({ to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, { address, sponsor: chainId !== 31337 });
+      const sent = await sendTransaction({ to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, { address, sponsor: true });
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted);
       await waitFor(sent.hash);
@@ -151,7 +151,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       const claim = await auth(`/v1/claims/${saved.id}`);
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, saved.amountUnits);
       save({ ...saved, stage: "DEPOSIT_REQUESTED" });
-      const sent = await sendTransaction({ to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, { address, sponsor: chainId !== 31337 });
+      const sent = await sendTransaction({ to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, { address, sponsor: true });
       const submitted = { ...saved, stage: "DEPOSIT_SUBMITTED" as const, depositHash: sent.hash };
       save(submitted);
       await reconcile(submitted);

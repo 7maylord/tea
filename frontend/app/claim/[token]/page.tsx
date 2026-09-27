@@ -9,8 +9,8 @@ export default async function ClaimPage({ params }: { params: Promise<{ token: s
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
   const apiOrigin = process.env.NEXT_PUBLIC_API_ORIGIN;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID);
-  if (!appId || !apiOrigin || ![31337, 10143].includes(chainId)) {
+  if (!appId || !apiOrigin || chainId !== 10143) {
     return <main className="mx-auto max-w-md px-5 py-12">Claiming is unavailable right now.</main>;
   }
-  return <Providers appId={appId} chainId={chainId}><ClaimView token={token} apiOrigin={apiOrigin} chainId={chainId} /></Providers>;
+  return <Providers appId={appId}><ClaimView token={token} apiOrigin={apiOrigin} chainId={chainId} /></Providers>;
 }

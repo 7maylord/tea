@@ -16,6 +16,6 @@ The example sets `ENVIO_PG_PORT=55433` so Envio starts its own Postgres containe
 
 The config defaults to the Monad testnet deployment recorded in `../docs/integrations.md`, starting at block 65515139. The Monad public RPC currently limits `eth_getLogs` ranges to 100 blocks, so the RPC interval is capped at 100. Override the four contract addresses and `ENVIO_RPC_URL` in `.env` if the deployment changes.
 
-Envio's [configuration](https://docs.envio.dev/docs/HyperIndex/configuration-file), [event handler](https://docs.envio.dev/docs/HyperIndex/event-handlers) and [local Anvil](https://docs.envio.dev/docs/HyperIndex/local-anvil) guides describe this configuration.
+Envio's [configuration](https://docs.envio.dev/docs/HyperIndex/configuration-file), [event handler](https://docs.envio.dev/docs/HyperIndex/event-handlers) guides describe this configuration.
 
 Date locks emit `LOCK_CREATED` with `lockId`, sender, recipient, amount and `unlockAt`, and `LOCK_WITHDRAWN` with the full paid amount. These are public lifecycle rows; private backend date-lock receipt integration remains a separate checkpoint.

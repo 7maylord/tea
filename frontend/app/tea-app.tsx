@@ -173,28 +173,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     }
   }
 
-  async function getTestFunds() {
-    if (!online) { setError('Reconnect before requesting test funds.'); return; }
-    if (!session || session.account.chainId !== 31337) return;
-    setBusy(true);
-    setError('');
-    setNotice('');
-    try {
-      const token = await getIdentityToken();
-      if (!token) throw new Error('Your session expired. Sign in again.');
-      const response = await fetch(`${apiOrigin}/v1/local/faucet`, {
-        method: 'POST',
-        headers: { 'privy-id-token': token },
-      });
-      if (!response.ok) throw new Error('Could not request test funds. Try again.');
-      setNotice('Test funds submitted. Refresh your balance to confirm.');
-      setBalanceVersion((value) => value + 1);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not request test funds.');
-    } finally {
-      setBusy(false);
-    }
-  }
+
 
   const address = session?.account.address;
 
@@ -246,14 +225,13 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             {view === 'home' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
               <h1 className="text-4xl font-semibold tracking-tight">Hello, @{session.handle}.</h1>
-              <p className="mt-4 text-stone-600">Your TEA account is ready to receive test funds.</p>
+              <p className="mt-4 text-stone-600">Your TEA account is ready on Monad testnet.</p>
               <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
                 <p className="text-sm text-stone-300">Onchain balance</p>
                 <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
                 {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
                 <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
               </div>
-              {session.account.chainId === 31337 && <button type="button" disabled={busy || !online} onClick={() => void getTestFunds()} className={`${primary} mt-5`}>{busy ? 'Requesting…' : 'Get 20 test USD'}</button>}
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}

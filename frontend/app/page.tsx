@@ -6,7 +6,7 @@ export default function Home() {
   const apiOrigin = process.env.NEXT_PUBLIC_API_ORIGIN;
   const chainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID);
 
-  if (!appId || !apiOrigin || ![31337, 10143].includes(chainId)) {
+  if (!appId || !apiOrigin || chainId !== 10143) {
     return (
       <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 text-center">
         <span className="text-5xl font-semibold tracking-tight">tea.</span>
@@ -16,7 +16,7 @@ export default function Home() {
   }
 
   return (
-    <Providers appId={appId} chainId={chainId}>
+    <Providers appId={appId}>
       <TeaApp apiOrigin={apiOrigin} />
     </Providers>
   );

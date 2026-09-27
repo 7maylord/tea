@@ -1,18 +1,14 @@
 import {
   Injectable,
-  NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import {
   createPublicClient as createPublicClientBase,
-  createWalletClient,
   http,
   isAddress,
-  parseEther,
   type Address,
 } from 'viem';
-import { foundry } from 'viem/chains';
 import tokenAbiJson from '../abi/TestUSD.json';
 import { SessionService } from '../identity/session.service';
 
@@ -93,82 +89,6 @@ export class FundsService {
       throw new ServiceUnavailableException(
         'Balance is temporarily unavailable',
       );
-    }
-  }
-
-  async localFaucet(identityToken: string | undefined) {
-    if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
-    if (process.env.APP_ENV !== 'local' || process.env.CHAIN_ID !== '31337') {
-      throw new NotFoundException();
-    }
-    const { rpcUrl, token } = this.config();
-    let url: URL;
-    try {
-      url = new URL(rpcUrl);
-    } catch {
-      throw new NotFoundException();
-    }
-    if (
-      url.protocol !== 'http:' ||
-      !['127.0.0.1', 'localhost'].includes(url.hostname)
-    ) {
-      throw new NotFoundException();
-    }
-    const user = await this.sessions.sync(identityToken);
-    if (!user.handle || user.account.chainId !== 31337) {
-      throw new ServiceUnavailableException('Local account is not ready');
-    }
-    const publicClient = createPublicClient({
-      chain: foundry,
-      transport: http(rpcUrl, { timeout: 5000 }),
-    });
-    try {
-      if ((await publicClient.getChainId()) !== 31337)
-        throw new Error('Wrong chain');
-      const [name, decimals] = await Promise.all([
-        publicClient.readContract({
-          address: token,
-          abi: tokenAbi,
-          functionName: 'name',
-        }),
-        publicClient.readContract({
-          address: token,
-          abi: tokenAbi,
-          functionName: 'decimals',
-        }),
-      ]);
-      if (name !== 'Test USD (no cash value)' || decimals !== 6) {
-        throw new Error('Wrong faucet token');
-      }
-      const wallet = createWalletClient({
-        chain: foundry,
-        transport: http(rpcUrl, { timeout: 5000 }),
-      });
-      const [sender] = await wallet.getAddresses();
-      if (!sender) throw new Error('No unlocked local account');
-      if (
-        (await publicClient.getBalance({
-          address: user.account.address as Address,
-        })) < parseEther('0.01')
-      ) {
-        const gasHash = await wallet.sendTransaction({
-          account: sender,
-          to: user.account.address as Address,
-          value: parseEther('0.05'),
-        });
-        await publicClient.waitForTransactionReceipt({ hash: gasHash });
-      }
-      const hash = await wallet.writeContract({
-        account: sender,
-        address: token,
-        abi: tokenAbi,
-        functionName: 'mint',
-        args: [user.account.address as Address, 20_000_000n],
-      });
-      return { status: 'submitted', hash };
-    } catch {
-      throw new ServiceUnavailableException('Local faucet is unavailable');
     }
   }
 }

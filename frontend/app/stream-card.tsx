@@ -104,7 +104,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
       const plan = checkedStreamAction(action, kind, wallet.address, stream.streamContract, stream.chainId, stream.streamId);
       const requested = { ...pending, actionId: action.id, stage: "WALLET_REQUESTED" as const };
       save(requested);
-      const sent = await sendTransaction({ to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, { address: wallet.address, sponsor: stream.chainId !== 31337 });
+      const sent = await sendTransaction({ to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, { address: wallet.address, sponsor: true });
       const submitted = { ...requested, stage: "SUBMITTED" as const, hash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Stream action failed."); }

@@ -37,6 +37,6 @@ The stateful accounting invariant randomizes funding, time advancement, stream c
 
 `script/TeaStream.s.sol` deploys with the token address supplied through `SETTLEMENT_TOKEN`. Verify the network, token code and decimals, deployer account, and sponsorship path before using it on a testnet. Record the deployed address, bytecode and transaction in `docs/integrations.md`. No deployment is performed by the local test suite.
 
-`script/TeaClaimEscrow.s.sol` also requires `CLAIM_IDENTITY_SIGNER` and `CLAIM_ADMIN` addresses. `script/LocalDeploy.s.sol` deploys the faucet token, stream, escrow and date unlock on Anvil. Its escrow signer and admin default to Anvil's first account; set `LOCAL_ACCOUNT` to use another local account. Do not use the local faucet or local signer arrangement with real funds.
+`script/TeaClaimEscrow.s.sol` also requires `CLAIM_IDENTITY_SIGNER` and `CLAIM_ADMIN` addresses. Use the Monad deployment scripts and records for app integration; there is no app-level local settlement deployment path.
 
 The current tests cover vesting, collection, cancellation, rounding, token-transfer rejection, access control, and aggregate backing. A live sponsored create/collect/cancel cycle is still required for Gate B in `docs/implementation-plan.md`.

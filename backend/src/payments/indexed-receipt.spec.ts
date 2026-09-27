@@ -4,7 +4,7 @@ it('accepts only the canonical transfer for the confirmed intent', () => {
   const intent = {
     kind: 'DIRECT',
     state: 'CONFIRMED',
-    chainId: 31337,
+    chainId: 10143,
     tokenAddress: '0xtoken',
     streamAddress: null,
     payerAddress: '0xsender',
@@ -21,8 +21,8 @@ it('accepts only the canonical transfer for the confirmed intent', () => {
     blockHash: '0xcanonical',
   };
   const event: IndexedEvent = {
-    id: '31337:0xtx:3',
-    chainId: 31337,
+    id: '10143:0xtx:3',
+    chainId: 10143,
     txHash: '0xtx',
     logIndex: 3,
     blockNumber: '7',
@@ -46,7 +46,7 @@ it('accepts only the canonical transfer for the confirmed intent', () => {
     matchIndexedReceipt(intent, attempt, [{ ...event, blockHash: '0xorphan' }]),
   ).toBeNull();
   expect(matchIndexedReceipt(intent, attempt, [event])).toMatchObject({
-    id: '31337:0xtx:3',
+    id: '10143:0xtx:3',
     blockHash: '0xcanonical',
   });
 });
@@ -55,7 +55,7 @@ it('matches stream creation by its onchain stream ID', () => {
   const intent = {
     kind: 'STREAM',
     state: 'CONFIRMED',
-    chainId: 31337,
+    chainId: 10143,
     tokenAddress: '0xtoken',
     streamAddress: '0xstream',
     payerAddress: '0xsender',
@@ -70,8 +70,8 @@ it('matches stream creation by its onchain stream ID', () => {
     blockHash: '0xcanonical',
   };
   const event: IndexedEvent = {
-    id: '31337:0xtx:3',
-    chainId: 31337,
+    id: '10143:0xtx:3',
+    chainId: 10143,
     txHash: '0xtx',
     logIndex: 3,
     blockNumber: '7',
@@ -94,7 +94,7 @@ it('matches a claim payout by escrow and claim ID', () => {
   const intent = {
     kind: 'CLAIM',
     state: 'CONFIRMED',
-    chainId: 31337,
+    chainId: 10143,
     tokenAddress: '0xtoken',
     streamAddress: null,
     payerAddress: '0xsender',
@@ -110,8 +110,8 @@ it('matches a claim payout by escrow and claim ID', () => {
     blockHash: '0xcanonical',
   };
   const event: IndexedEvent = {
-    id: '31337:0xtx:3',
-    chainId: 31337,
+    id: '10143:0xtx:3',
+    chainId: 10143,
     txHash: '0xtx',
     logIndex: 3,
     blockNumber: '7',
@@ -139,7 +139,7 @@ it('matches claim deposit and refund lifecycle receipts', () => {
   const intent = {
     kind: 'CLAIM',
     state: 'OPEN',
-    chainId: 31337,
+    chainId: 10143,
     tokenAddress: '0xtoken',
     streamAddress: null,
     payerAddress: '0xsender',
@@ -155,8 +155,8 @@ it('matches claim deposit and refund lifecycle receipts', () => {
     blockHash: '0xcanonical',
   };
   const event: IndexedEvent = {
-    id: '31337:0xtx:3',
-    chainId: 31337,
+    id: '10143:0xtx:3',
+    chainId: 10143,
     txHash: '0xtx',
     logIndex: 3,
     blockNumber: '7',
@@ -187,7 +187,7 @@ it('matches a date-lock creation by lock ID', () => {
   const intent = {
     kind: 'DATE_LOCK',
     state: 'CONFIRMED',
-    chainId: 31337,
+    chainId: 10143,
     tokenAddress: '0xtoken',
     streamAddress: null,
     dateUnlockAddress: '0xdate',
@@ -204,8 +204,8 @@ it('matches a date-lock creation by lock ID', () => {
     blockHash: '0xcanonical',
   };
   const event: IndexedEvent = {
-    id: '31337:0xtx:3',
-    chainId: 31337,
+    id: '10143:0xtx:3',
+    chainId: 10143,
     txHash: '0xtx',
     logIndex: 3,
     blockNumber: '7',
