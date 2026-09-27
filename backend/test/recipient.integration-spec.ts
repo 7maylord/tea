@@ -44,7 +44,7 @@ describe('recipient resolution (Postgres and Redis)', () => {
   const references: string[] = [];
 
   beforeAll(async () => {
-    process.env.CHAIN_ID = '31337';
+    process.env.CHAIN_ID = '10143';
     process.env.IDENTITY_LOOKUP_HMAC_KEY = randomBytes(32).toString('base64');
     process.env.IDENTITY_ENCRYPTION_KEY = randomBytes(32).toString('base64');
     const module = await Test.createTestingModule({
@@ -136,18 +136,18 @@ describe('recipient resolution (Postgres and Redis)', () => {
     );
     expect(snapshot).toMatchObject({
       destination: targetAddress,
-      chainId: 31337,
+      chainId: 10143,
     });
     expect(await redis.ttl(key)).toBeGreaterThan(0);
     const service = app.get(SessionService);
     await expect(
-      service.recipientSnapshot(body.reference, snapshot.requesterId, 31337),
+      service.recipientSnapshot(body.reference, snapshot.requesterId, 10143),
     ).resolves.toMatchObject({ destination: targetAddress });
     await expect(
       service.recipientSnapshot(body.reference, snapshot.requesterId, 1),
     ).rejects.toMatchObject({ status: 410 });
     await expect(
-      service.recipientSnapshot(body.reference, randomUUID(), 31337),
+      service.recipientSnapshot(body.reference, randomUUID(), 10143),
     ).rejects.toMatchObject({ status: 410 });
 
     const byEmail = await request(app.getHttpServer())

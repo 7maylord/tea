@@ -6,13 +6,13 @@ import tokenAbi from '../abi/TestUSD.json' with { type: 'json' };
 import { checkedStoredStreamAction, checkedStreamAction, checkedStreamPlan } from '../app/stream-plan.ts';
 test('validates funded stream creation and actions', () => {
   const sender='0x0000000000000000000000000000000000000001', recipient='0x0000000000000000000000000000000000000002', token='0x0000000000000000000000000000000000000003', contract='0x0000000000000000000000000000000000000004';
-  const intent={id:'id',state:'AWAITING_AUTHORIZATION',chainId:31337,token,streamContract:contract,sender,recipient,amountUnits:'1000000',durationSeconds:'300',streamId:null,plan:{approve:{chainId:31337,from:sender,to:token,value:'0',data:encodeFunctionData({abi:tokenAbi,functionName:'approve',args:[contract,1000000n]})},create:{chainId:31337,from:sender,to:contract,value:'0',data:encodeFunctionData({abi:streamAbi,functionName:'create',args:[recipient,1000000n,300]})}}};
-  assert.equal(checkedStreamPlan(intent,sender,token,31337,recipient,'1000000','300'),intent.plan);
-  assert.throws(()=>checkedStreamPlan(intent,sender,token,31337,recipient,'1000000','301'));
-  const action={id:'11111111-1111-4111-8111-111111111111',kind:'withdraw',state:'READY',plan:{chainId:31337,from:recipient,to:contract,value:'0',data:encodeFunctionData({abi:streamAbi,functionName:'withdraw',args:[7n]})}};
-  assert.equal(checkedStreamAction(action,'withdraw',recipient,contract,31337,'7'),action.plan);
-  assert.throws(()=>checkedStreamAction(action,'cancel',recipient,contract,31337,'7'));
-  assert.throws(()=>checkedStreamAction(action,'withdraw',recipient,contract,31337,'8'));
+  const intent={id:'id',state:'AWAITING_AUTHORIZATION',chainId:10143,token,streamContract:contract,sender,recipient,amountUnits:'1000000',durationSeconds:'300',streamId:null,plan:{approve:{chainId:10143,from:sender,to:token,value:'0',data:encodeFunctionData({abi:tokenAbi,functionName:'approve',args:[contract,1000000n]})},create:{chainId:10143,from:sender,to:contract,value:'0',data:encodeFunctionData({abi:streamAbi,functionName:'create',args:[recipient,1000000n,300]})}}};
+  assert.equal(checkedStreamPlan(intent,sender,token,10143,recipient,'1000000','300'),intent.plan);
+  assert.throws(()=>checkedStreamPlan(intent,sender,token,10143,recipient,'1000000','301'));
+  const action={id:'11111111-1111-4111-8111-111111111111',kind:'withdraw',state:'READY',plan:{chainId:10143,from:recipient,to:contract,value:'0',data:encodeFunctionData({abi:streamAbi,functionName:'withdraw',args:[7n]})}};
+  assert.equal(checkedStreamAction(action,'withdraw',recipient,contract,10143,'7'),action.plan);
+  assert.throws(()=>checkedStreamAction(action,'cancel',recipient,contract,10143,'7'));
+  assert.throws(()=>checkedStreamAction(action,'withdraw',recipient,contract,10143,'8'));
 });
 test('accepts only complete stream action recovery records', () => {
   const id='11111111-1111-4111-8111-111111111111', key='22222222-2222-4222-8222-222222222222';

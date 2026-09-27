@@ -49,7 +49,7 @@ describe('session identity sync (Postgres)', () => {
   let verified: jest.Mock<Promise<User>, [string]>;
 
   beforeAll(async () => {
-    process.env.CHAIN_ID = '31337';
+    process.env.CHAIN_ID = '10143';
     process.env.IDENTITY_LOOKUP_HMAC_KEY = lookupSecret.toString('base64');
     process.env.IDENTITY_ENCRYPTION_KEY = randomBytes(32).toString('base64');
     const module = await Test.createTestingModule({

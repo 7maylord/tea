@@ -43,11 +43,11 @@ async function check() {
   );
 
   await db.account.create({
-    data: { userId: first.id, chainId: 31337, settlementAddress: address },
+    data: { userId: first.id, chainId: 10143, settlementAddress: address },
   });
   await assert.rejects(
     db.account.create({
-      data: { userId: second.id, chainId: 31337, settlementAddress: address },
+      data: { userId: second.id, chainId: 10143, settlementAddress: address },
     }),
     { code: 'P2002' },
   );
@@ -55,7 +55,7 @@ async function check() {
     db.account.create({
       data: {
         userId: second.id,
-        chainId: 31337,
+        chainId: 10143,
         settlementAddress: address.toUpperCase(),
       },
     }),
