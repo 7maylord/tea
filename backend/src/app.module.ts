@@ -15,6 +15,8 @@ import { ClaimsController } from './claims/claims.controller';
 import { ClaimsService } from './claims/claims.service';
 import { StreamsController } from './streams/streams.controller';
 import { StreamsService } from './streams/streams.service';
+import { DateLocksController } from './date-locks/date-locks.controller';
+import { DateLocksService } from './date-locks/date-locks.service';
 
 @Module({
   imports: [],
@@ -29,6 +31,7 @@ import { StreamsService } from './streams/streams.service';
     ThreadsController,
     ClaimsController,
     StreamsController,
+    DateLocksController,
   ],
   providers: [
     AppService,
@@ -37,6 +40,7 @@ import { StreamsService } from './streams/streams.service';
     PaymentsService,
     ClaimsService,
     StreamsService,
+    DateLocksService,
   ],
 })
 export class AppModule {}

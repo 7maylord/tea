@@ -82,6 +82,9 @@ model PaymentIntent {
   streamAddress          String?              @db.VarChar(42)
   durationSeconds        BigInt?              @db.BigInt
   streamId               Decimal?             @db.Decimal(78, 0)
+  dateUnlockAddress      String?              @db.VarChar(42)
+  unlockAt               DateTime?            @db.Timestamptz(6)
+  dateLockId             Decimal?             @db.Decimal(78, 0)
   claimId                String?              @unique @db.Char(66)
   preparedAtBlock        BigInt?              @db.BigInt
   kind                   String               @db.VarChar(16)
@@ -97,6 +100,7 @@ model PaymentIntent {
   claim                  Claim?               @relation(fields: [claimId], references: [id], onDelete: Restrict)
   attempts               TransactionAttempt[]
   streamActions          StreamAction[]
+  dateUnlockActions      DateUnlockAction[]
 
   @@unique([payerId, idempotencyKey])
   @@index([payerId, state, authorizationExpiresAt])
@@ -149,6 +153,31 @@ model StreamAction {
   @@unique([chainId, txHash])
   @@index([intentId, createdAt, id])
   @@map("stream_actions")
+}
+
+model DateUnlockAction {
+  id                     String        @id @default(uuid()) @db.Uuid
+  intentId               String        @db.Uuid
+  chainId                Int
+  actorAddress           String        @db.VarChar(42)
+  state                  String        @db.VarChar(32)
+  idempotencyKey         String        @db.VarChar(128)
+  requestHash            String        @db.Char(64)
+  preparedAtBlock        BigInt        @db.BigInt
+  txHash                 String?       @db.VarChar(66)
+  submissionKey          String?       @db.VarChar(128)
+  submissionHash         String?       @db.Char(64)
+  amountUnits            Decimal?      @db.Decimal(78, 0)
+  blockNumber            BigInt?       @db.BigInt
+  blockHash              String?       @db.VarChar(66)
+  createdAt              DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime      @updatedAt @db.Timestamptz(6)
+  intent                 PaymentIntent @relation(fields: [intentId], references: [id], onDelete: Restrict)
+
+  @@unique([intentId, idempotencyKey])
+  @@unique([chainId, txHash])
+  @@index([intentId, createdAt, id])
+  @@map("date_unlock_actions")
 }
 
 model Claim {

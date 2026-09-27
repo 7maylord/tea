@@ -12,6 +12,8 @@ export type IndexedEvent = {
   amountUnits: string | null;
   streamId: string | null;
   claimId: string | null;
+  lockId: string | null;
+  unlockAt: string | null;
 };
 
 export function matchIndexedReceipt(
@@ -21,10 +23,12 @@ export function matchIndexedReceipt(
     chainId: number;
     tokenAddress: string;
     streamAddress: string | null;
+    dateUnlockAddress?: string | null;
     payerAddress: string;
     recipientAddress: string;
     amountUnits: { toString(): string };
     streamId: { toString(): string } | null;
+    dateLockId?: { toString(): string } | null;
     claimId: string | null;
     claim?: { escrowAddress: string } | null;
   },
@@ -38,23 +42,28 @@ export function matchIndexedReceipt(
   events: IndexedEvent[],
 ) {
   if (!attempt?.blockHash || attempt.blockNumber === null) return null;
-  if (!['DIRECT', 'STREAM', 'CLAIM'].includes(intent.kind)) return null;
+  if (!['DIRECT', 'STREAM', 'CLAIM', 'DATE_LOCK'].includes(intent.kind))
+    return null;
   const eventType =
     intent.kind === 'DIRECT'
       ? 'TRANSFER'
       : intent.kind === 'STREAM'
         ? 'STREAM_CREATED'
-        : intent.state === 'OPEN'
-          ? 'CLAIM_DEPOSITED'
-          : intent.state === 'REFUNDED'
-            ? 'CLAIM_REFUNDED'
-            : 'CLAIM_PAID';
+        : intent.kind === 'DATE_LOCK'
+          ? 'LOCK_CREATED'
+          : intent.state === 'OPEN'
+            ? 'CLAIM_DEPOSITED'
+            : intent.state === 'REFUNDED'
+              ? 'CLAIM_REFUNDED'
+              : 'CLAIM_PAID';
   const contract =
     intent.kind === 'DIRECT'
       ? intent.tokenAddress
       : intent.kind === 'STREAM'
         ? intent.streamAddress
-        : intent.claim?.escrowAddress;
+        : intent.kind === 'DATE_LOCK'
+          ? intent.dateUnlockAddress
+          : intent.claim?.escrowAddress;
   const match = events.find(
     (event) =>
       event.chainId === intent.chainId &&
@@ -74,6 +83,8 @@ export function matchIndexedReceipt(
       event.amountUnits === intent.amountUnits.toString() &&
       (intent.kind !== 'STREAM' ||
         event.streamId === intent.streamId?.toString()) &&
+      (intent.kind !== 'DATE_LOCK' ||
+        event.lockId === intent.dateLockId?.toString()) &&
       (intent.kind !== 'CLAIM' || event.claimId === intent.claimId),
   );
   return match

@@ -68,7 +68,7 @@ export class PaymentsService implements OnModuleDestroy {
           query: `query($hashes: [String!]!) {
             ChainEvent(where: {txHash: {_in: $hashes}}, limit: 100) {
               id chainId txHash logIndex blockNumber blockHash contractAddress
-              eventType fromAddress toAddress amountUnits streamId claimId
+              eventType fromAddress toAddress amountUnits streamId claimId lockId unlockAt
             }
           }`,
           variables: { hashes },
