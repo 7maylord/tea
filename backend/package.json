@@ -25,7 +25,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "test:db": "node test/identity-db.check.cjs",
     "test:identity": "jest --config ./test/jest-e2e.json --runInBand --testRegex identity.integration-spec.ts$",
-    "test:resolve": "jest --config ./test/jest-e2e.json --runInBand --testRegex recipient.integration-spec.ts$"
+    "test:resolve": "jest --config ./test/jest-e2e.json --runInBand --testRegex recipient.integration-spec.ts$",
+    "check:claims": "node scripts/check-claims.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
