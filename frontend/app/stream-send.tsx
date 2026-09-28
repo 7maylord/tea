@@ -1,6 +1,7 @@
 "use client";
 
-import { getIdentityToken, useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { authHeaders } from "./auth";
 import { createPublicClient, custom, formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { useOnlineStatus } from "./pwa";
@@ -24,9 +25,7 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   const storageKey = `tea:stream:${userId}`;
   const draftKey = `tea:stream-draft:${userId}`;
   const api = useCallback(async (path: string, options: RequestInit = {}) => {
-    const identity = await getIdentityToken();
-    if (!identity) throw new Error("Your session expired. Sign in again.");
-    const response = await fetch(`${apiOrigin}${path}`, { ...options, cache: "no-store", headers: { "Content-Type": "application/json", "privy-id-token": identity, ...options.headers } });
+    const response = await fetch(`${apiOrigin}${path}`, { ...options, cache: "no-store", headers: { "Content-Type": "application/json", ...await authHeaders(), ...options.headers } });
     if (!response.ok) throw new Error(response.status === 422 ? "Not enough available funds." : "Could not prepare this stream.");
     return response.json() as Promise<StreamIntent>;
   }, [apiOrigin]);

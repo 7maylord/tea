@@ -1,6 +1,7 @@
 "use client";
 
-import { getIdentityToken, useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOnlineStatus } from "./pwa";
@@ -29,9 +30,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
   });
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const load = useCallback(async () => {
-    const token = await getIdentityToken();
-    if (!token) return;
-    const response = await fetch(`${apiOrigin}/v1/streams/${id}`, { headers: { "privy-id-token": token }, cache: "no-store" });
+    const response = await fetch(`${apiOrigin}/v1/streams/${id}`, { headers: await authHeaders(), cache: "no-store" });
     if (response.ok) {
       const next = await response.json() as StreamDetail;
       setStream(next);
@@ -45,11 +44,9 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
   const reconcile = useCallback(async (record: SavedStreamAction) => {
     if (!online || !record.actionId || !record.hash) return;
     try {
-      const identity = await getIdentityToken();
-      if (!identity) throw new Error("Sign in again.");
       const response = await fetch(`${apiOrigin}/v1/streams/${id}/actions/${record.actionId}/submission`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "privy-id-token": identity, "Idempotency-Key": record.submitKey },
+        headers: { "Content-Type": "application/json", ...await authHeaders(), "Idempotency-Key": record.submitKey },
         body: JSON.stringify({ txHash: record.hash }),
       });
       if (!response.ok) throw new Error("The transaction was submitted. Confirmation is still being checked.");
@@ -93,9 +90,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
       const pending = saved ?? { intentId: id, actionId: null, prepareKey: crypto.randomUUID(), submitKey: crypto.randomUUID(), kind, stage: "PREPARING" as const };
       if (pending.kind !== kind) return;
       if (!saved) save(pending);
-      const identity = await getIdentityToken();
-      if (!identity) throw new Error("Sign in again.");
-      const response = await fetch(`${apiOrigin}/v1/streams/${id}/${kind}`, { method: "POST", headers: { "privy-id-token": identity, "Idempotency-Key": pending.prepareKey } });
+      const response = await fetch(`${apiOrigin}/v1/streams/${id}/${kind}`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": pending.prepareKey } });
       if (!response.ok) throw new Error(kind === "withdraw" ? "Nothing is available to collect yet." : "This stream can no longer be stopped.");
       const action = await response.json() as StreamAction;
       const expected = kind === "withdraw" ? stream.recipient : stream.sender;

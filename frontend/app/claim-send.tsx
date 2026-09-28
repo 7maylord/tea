@@ -1,6 +1,7 @@
 "use client";
 
-import { getIdentityToken, useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { useSendTransaction, useWallets } from "@privy-io/react-auth";
+import { authHeaders } from "./auth";
 import { createPublicClient, custom, formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
@@ -42,12 +43,10 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   const draftKey = `tea:claim-draft:${userId}`;
 
   const auth = useCallback(async (path: string, options: RequestInit = {}) => {
-    const token = await getIdentityToken();
-    if (!token) throw new Error("Your session expired. Sign in again.");
     const response = await fetch(`${apiOrigin}${path}`, {
       ...options,
       cache: "no-store",
-      headers: { "Content-Type": "application/json", "privy-id-token": token, ...options.headers },
+      headers: { "Content-Type": "application/json", ...await authHeaders(), ...options.headers },
     });
     if (!response.ok) throw new Error(response.status === 422 ? "Not enough available funds." : "Could not prepare this email payment.");
     return response.json() as Promise<ClaimIntent>;

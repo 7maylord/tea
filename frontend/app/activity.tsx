@@ -1,6 +1,6 @@
 "use client";
 
-import { getIdentityToken } from "@privy-io/react-auth";
+import { authHeaders } from "./auth";
 import { useCallback, useEffect, useState } from "react";
 import { useOnlineStatus } from "./pwa";
 import StreamCard from "./stream-card";
@@ -49,10 +49,8 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
 
   const refresh = useCallback(async (signal?: AbortSignal, cursor?: string) => {
     try {
-      const token = await getIdentityToken();
-      if (!token) throw new Error("Sign in again to view your activity.");
       const path = selected ? `/v1/threads/${selected}` : "/v1/threads";
-      const headers = { "privy-id-token": token };
+      const headers = await authHeaders();
       const [response, claimResponse] = await Promise.all([
         fetch(`${apiOrigin}${path}${cursor ? `?cursor=${cursor}` : ""}`, { headers, cache: "no-store", signal }),
         !selected && !cursor ? fetch(`${apiOrigin}/v1/activity`, { headers, cache: "no-store", signal }) : null,
@@ -106,11 +104,9 @@ export default function Activity({ apiOrigin, userId }: { apiOrigin: string; use
     setError("");
     setNotice("");
     try {
-      const token = await getIdentityToken();
-      if (!token) throw new Error("Sign in again to manage this claim.");
       const response = await fetch(`${apiOrigin}/v1/claims/${claim.claimId}/${action}`, {
         method: "POST",
-        headers: { "privy-id-token": token, "Idempotency-Key": crypto.randomUUID() },
+        headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() },
       });
       if (!response.ok) throw new Error(response.status === 429 ? "Wait before sending another invitation." : action === "refund" ? "This claim is not refundable yet." : "Could not resend this invitation.");
       setNotice(action === "refund" ? "Refund queued. Activity will update after chain confirmation." : "Invitation queued for delivery.");

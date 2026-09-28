@@ -51,15 +51,19 @@ export class SessionService implements OnModuleDestroy {
         appId: PRIVY_APP_ID,
         appSecret: PRIVY_APP_SECRET,
       });
-      this.getUser = async (idToken) => {
-        let authenticated: User;
+      this.getUser = async (accessToken) => {
+        let userId: string;
         try {
-          authenticated = await client.users().get({ id_token: idToken });
+          const session = await client
+            .utils()
+            .auth()
+            .verifyAccessToken(accessToken);
+          userId = session.user_id;
         } catch {
-          throw new UnauthorizedException('Invalid identity token');
+          throw new UnauthorizedException('Invalid session token');
         }
         try {
-          return await client.users()._get(authenticated.id);
+          return await client.users()._get(userId);
         } catch {
           throw new ServiceUnavailableException(
             'Identity provider unavailable',
@@ -115,7 +119,7 @@ export class SessionService implements OnModuleDestroy {
   }
 
   async sync(token: string | undefined) {
-    if (!token) throw new UnauthorizedException('Identity token required');
+    if (!token) throw new UnauthorizedException('Session token required');
     if (!process.env.DATABASE_URL) {
       throw new ServiceUnavailableException('Database is not configured');
     }
@@ -226,7 +230,7 @@ export class SessionService implements OnModuleDestroy {
   }
 
   async reserveHandle(token: string | undefined, value: unknown) {
-    if (!token) throw new UnauthorizedException('Identity token required');
+    if (!token) throw new UnauthorizedException('Session token required');
     if (
       typeof value !== 'string' ||
       !/^[a-z0-9_]{3,20}$/.test(value) ||
@@ -260,7 +264,7 @@ export class SessionService implements OnModuleDestroy {
   }
 
   async resolve(token: string | undefined, kind: unknown, value: unknown) {
-    if (!token) throw new UnauthorizedException('Identity token required');
+    if (!token) throw new UnauthorizedException('Session token required');
     if (kind !== 'handle' && kind !== 'email') {
       throw new BadRequestException('Invalid recipient type');
     }

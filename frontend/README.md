@@ -1,6 +1,6 @@
 # TEA frontend
 
-Install and run this app from `frontend/`. Copy `.env.example` to `.env`, set the public Privy app ID, and enable email login, identity tokens, and Ethereum embedded wallets for that app before running:
+Install and run this app from `frontend/`. Copy `.env.example` to `.env`, set the public Privy app ID, and enable email login and Ethereum embedded wallets for that app before running:
 
 ```sh
 pnpm install

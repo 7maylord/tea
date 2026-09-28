@@ -1,7 +1,7 @@
 "use client";
 
+import { authHeaders } from "./auth";
 import {
-  getIdentityToken,
   useCreateWallet,
   usePrivy,
   useUser,
@@ -62,15 +62,12 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   useEffect(() => {
     if (!online || !ready || !authenticated || !did || !hasWallet) return;
     const controller = new AbortController();
-    void getIdentityToken()
-      .then((token) => {
-        if (!token) throw new Error('Your verified session is not ready. Sign out and try again.');
-        return fetch(`${apiOrigin}/v1/session/sync`, {
-          method: 'POST',
-          headers: { 'privy-id-token': token },
-          signal: controller.signal,
-        });
-      })
+    void authHeaders()
+      .then((headers) => fetch(`${apiOrigin}/v1/session/sync`, {
+        method: 'POST',
+        headers,
+        signal: controller.signal,
+      }))
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not finish account setup. Try again.');
         return (await response.json()) as Session;
@@ -85,15 +82,12 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   useEffect(() => {
     if (!online || view !== 'home' || !session?.handle) return;
     const controller = new AbortController();
-    void getIdentityToken()
-      .then((token) => {
-        if (!token) throw new Error('Your session expired. Sign in again.');
-        return fetch(`${apiOrigin}/v1/balance`, {
-          headers: { 'privy-id-token': token },
-          cache: 'no-store',
-          signal: controller.signal,
-        });
-      })
+    void authHeaders()
+      .then((headers) => fetch(`${apiOrigin}/v1/balance`, {
+        headers,
+        cache: 'no-store',
+        signal: controller.signal,
+      }))
       .then(async (response) => {
         if (!response.ok) throw new Error('Balance unavailable');
         return (await response.json()) as Balance;
@@ -157,11 +151,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     setBusy(true);
     setError('');
     try {
-      const token = await getIdentityToken();
-      if (!token) throw new Error('Your session expired. Sign in again.');
       const response = await fetch(`${apiOrigin}/v1/me/handle`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'privy-id-token': token },
+        headers: { 'Content-Type': 'application/json', ...await authHeaders() },
         body: JSON.stringify({ handle }),
       });
       if (response.status === 409) {

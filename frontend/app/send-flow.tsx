@@ -1,6 +1,7 @@
 "use client";
 
-import { getIdentityToken, useSendTransaction } from "@privy-io/react-auth";
+import { useSendTransaction } from "@privy-io/react-auth";
+import { authHeaders } from "./auth";
 import { formatUnits, parseUnits, type Hex } from "viem";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { checkedTransferPlan, type PaymentIntent } from "./payment-plan";
@@ -62,12 +63,10 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   }, [onSettled, reviewKey]);
 
   const authFetch = useCallback(async (path: string, options: RequestInit = {}) => {
-    const token = await getIdentityToken();
-    if (!token) throw new Error("Your session expired. Sign in again.");
     const response = await fetch(`${apiOrigin}${path}`, {
       ...options,
       cache: "no-store",
-      headers: { "Content-Type": "application/json", "privy-id-token": token, ...options.headers },
+      headers: { "Content-Type": "application/json", ...await authHeaders(), ...options.headers },
     });
     if (!response.ok) throw new Error(response.status === 404 && path === "/v1/resolve" ? "That TEA name was not found." : response.status === 422 ? "Not enough available funds. Refresh your balance." : "Payment is unavailable. Try again.");
     return response.json() as Promise<unknown>;

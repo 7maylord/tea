@@ -1,6 +1,7 @@
 "use client";
 
-import { getIdentityToken, useCreateWallet, usePrivy, useSignTypedData, useUser } from "@privy-io/react-auth";
+import { useCreateWallet, usePrivy, useSignTypedData, useUser } from "@privy-io/react-auth";
+import { authHeaders } from "../../auth";
 import { useCallback, useEffect, useState } from "react";
 import { formatUnits, hashTypedData, type Hex } from "viem";
 import { useOnlineStatus } from "../../pwa";
@@ -44,11 +45,9 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
   const address = wallet?.type === "wallet" ? wallet.address : null;
 
   const post = useCallback(async (path: string, body: object, key?: string) => {
-    const identity = await getIdentityToken();
-    if (!identity) throw new Error("Sign in with the invited email first.");
     const response = await fetch(`${apiOrigin}${path}`, {
       method: "POST", cache: "no-store",
-      headers: { "Content-Type": "application/json", "privy-id-token": identity, ...(key ? { "Idempotency-Key": key } : {}) },
+      headers: { "Content-Type": "application/json", ...await authHeaders(), ...(key ? { "Idempotency-Key": key } : {}) },
       body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(response.status === 404 ? "This invitation is not available for your verified email." : "Could not check this invitation. Try again.");

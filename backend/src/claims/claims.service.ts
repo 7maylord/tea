@@ -204,7 +204,7 @@ export class ClaimsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
     }
@@ -387,7 +387,7 @@ export class ClaimsService implements OnModuleDestroy {
 
   async get(identityToken: string | undefined, id: string) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     const payer = await this.sessions.sync(identityToken);
     const claim = await this.db.claim.findFirst({
@@ -566,7 +566,7 @@ export class ClaimsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
@@ -757,7 +757,7 @@ export class ClaimsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
@@ -996,7 +996,7 @@ export class ClaimsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
@@ -1151,7 +1151,7 @@ export class ClaimsService implements OnModuleDestroy {
     idempotencyKey: string | undefined,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
@@ -1189,7 +1189,7 @@ export class ClaimsService implements OnModuleDestroy {
     idempotencyKey: string | undefined,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!/^0x[0-9a-f]{64}$/.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');

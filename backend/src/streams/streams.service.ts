@@ -145,7 +145,7 @@ export class StreamsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
     }
@@ -526,7 +526,7 @@ export class StreamsService implements OnModuleDestroy {
 
   async get(identityToken: string | undefined, id: string) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idPattern.test(id)) throw new NotFoundException();
     const user = await this.sessions.sync(identityToken);
     return this.readForUser(user, id);
@@ -539,7 +539,7 @@ export class StreamsService implements OnModuleDestroy {
     kind: 'withdraw' | 'cancel',
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idPattern.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
@@ -790,7 +790,7 @@ export class StreamsService implements OnModuleDestroy {
     actionId: string,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idPattern.test(id) || !idPattern.test(actionId))
       throw new NotFoundException();
     const action = await this.actionForUser(identityToken, id, actionId);
@@ -826,7 +826,7 @@ export class StreamsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idPattern.test(id) || !idPattern.test(actionId))
       throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
@@ -906,7 +906,7 @@ export class StreamsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idPattern.test(id)) throw new NotFoundException();
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');

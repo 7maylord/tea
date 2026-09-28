@@ -38,7 +38,7 @@ export class FundsService {
 
   async balance(identityToken: string | undefined) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     const user = await this.sessions.sync(identityToken);
     return this.readBalance(user.account);
   }

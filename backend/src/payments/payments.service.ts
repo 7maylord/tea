@@ -91,7 +91,7 @@ export class PaymentsService implements OnModuleDestroy {
 
   async activity(identityToken: string | undefined, cursor?: string) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     const user = await this.sessions.sync(identityToken);
     return this.activityForUser(user.id, cursor);
   }
@@ -182,7 +182,7 @@ export class PaymentsService implements OnModuleDestroy {
 
   async threads(identityToken: string | undefined, cursor?: string) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (cursor !== undefined && !uuidPattern.test(cursor)) {
       throw new BadRequestException('Invalid thread cursor');
     }
@@ -245,7 +245,7 @@ export class PaymentsService implements OnModuleDestroy {
     cursor?: string,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!uuidPattern.test(id)) {
       throw new NotFoundException('Thread not found');
     }
@@ -410,7 +410,7 @@ export class PaymentsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (!idempotencyKey || !/^[A-Za-z0-9._~-]{8,128}$/.test(idempotencyKey)) {
       throw new BadRequestException('Invalid Idempotency-Key');
     }
@@ -554,7 +554,7 @@ export class PaymentsService implements OnModuleDestroy {
 
   async get(identityToken: string | undefined, id: string) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
     ) {
@@ -611,7 +611,7 @@ export class PaymentsService implements OnModuleDestroy {
     input: unknown,
   ) {
     if (!identityToken)
-      throw new UnauthorizedException('Identity token required');
+      throw new UnauthorizedException('Session token required');
     if (
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)
     ) {
