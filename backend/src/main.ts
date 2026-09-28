@@ -6,7 +6,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: process.env.APP_ORIGIN
-      ? [process.env.APP_ORIGIN]
+      ? process.env.APP_ORIGIN.split(',').map((origin) => origin.trim())
       : ['http://127.0.0.1:3000', 'http://localhost:3000'],
   });
   app.use(

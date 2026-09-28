@@ -3,7 +3,6 @@
 import {
   getIdentityToken,
   useCreateWallet,
-  useIdentityToken,
   usePrivy,
   useUser,
 } from "@privy-io/react-auth";
@@ -38,7 +37,6 @@ const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const online = useOnlineStatus();
   const { ready, authenticated, user, login, logout, linkPasskey } = usePrivy();
-  const { identityToken } = useIdentityToken();
   const { createWallet } = useCreateWallet();
   const { refreshUser } = useUser();
   const [active, setActive] = useState<{ did: string; session: Session } | null>(null);
@@ -62,32 +60,40 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const refreshAfterPayment = useCallback(() => setBalanceVersion((value) => value + 1), []);
 
   useEffect(() => {
-    if (!online || !ready || !authenticated || !did || !identityToken || !hasWallet) return;
+    if (!online || !ready || !authenticated || !did || !hasWallet) return;
     const controller = new AbortController();
-    void fetch(`${apiOrigin}/v1/session/sync`, {
-      method: 'POST',
-      headers: { 'privy-id-token': identityToken },
-      signal: controller.signal,
-    })
+    void getIdentityToken()
+      .then((token) => {
+        if (!token) throw new Error('Your verified session is not ready. Sign out and try again.');
+        return fetch(`${apiOrigin}/v1/session/sync`, {
+          method: 'POST',
+          headers: { 'privy-id-token': token },
+          signal: controller.signal,
+        });
+      })
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not finish account setup. Try again.');
         return (await response.json()) as Session;
       })
       .then((session) => { setActive({ did, session }); setError(''); })
-      .catch(() => {
-        if (!controller.signal.aborted) setError('Could not finish account setup. Try again.');
+      .catch((cause) => {
+        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not finish account setup. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, authenticated, did, hasWallet, identityToken, online, ready, retry]);
+  }, [apiOrigin, authenticated, did, hasWallet, online, ready, retry]);
 
   useEffect(() => {
-    if (!online || view !== 'home' || !session?.handle || !identityToken) return;
+    if (!online || view !== 'home' || !session?.handle) return;
     const controller = new AbortController();
-    void fetch(`${apiOrigin}/v1/balance`, {
-      headers: { 'privy-id-token': identityToken },
-      cache: 'no-store',
-      signal: controller.signal,
-    })
+    void getIdentityToken()
+      .then((token) => {
+        if (!token) throw new Error('Your session expired. Sign in again.');
+        return fetch(`${apiOrigin}/v1/balance`, {
+          headers: { 'privy-id-token': token },
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+      })
       .then(async (response) => {
         if (!response.ok) throw new Error('Balance unavailable');
         return (await response.json()) as Balance;
@@ -97,7 +103,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, balanceVersion, identityToken, online, session?.handle, session?.id, view]);
+  }, [apiOrigin, balanceVersion, online, session?.handle, session?.id, view]);
 
   async function finishWallet() {
     setBusy(true);
@@ -203,7 +209,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         ) : !session ? (
           <>
             <h1 className="text-3xl font-semibold">Preparing your account</h1>
-            <p className="mt-3 text-stone-600">{identityToken ? 'This usually takes a moment.' : 'Waiting for your verified session. If this persists, sign out and try again.'}</p>
+            <p className="mt-3 text-stone-600">This usually takes a moment.</p>
+            {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {error && <button type="button" onClick={() => setRetry((value) => value + 1)} className={`${primary} mt-6`}>Try again</button>}
           </>
         ) : !session.handle ? (
