@@ -18,6 +18,8 @@ model User {
   outgoingPayments PaymentIntent[] @relation("OutgoingPayments")
   incomingPayments PaymentIntent[] @relation("IncomingPayments")
   outgoingClaims   Claim[]         @relation("OutgoingClaims")
+  outgoingSplits   Split[]         @relation("OutgoingSplits")
+  splitObligations SplitObligation[]
   lowerThreads     Thread[]        @relation("LowerThreadUser")
   upperThreads     Thread[]        @relation("UpperThreadUser")
 
@@ -101,6 +103,7 @@ model PaymentIntent {
   attempts               TransactionAttempt[]
   streamActions          StreamAction[]
   dateUnlockActions      DateUnlockAction[]
+  splitObligation        SplitObligation?
 
   @@unique([payerId, idempotencyKey])
   @@index([payerId, state, authorizationExpiresAt])
@@ -255,4 +258,47 @@ model OutboxJob {
 
   @@index([state, nextAttemptAt])
   @@map("outbox_jobs")
+}
+
+
+model Split {
+  id               String            @id @default(uuid()) @db.Uuid
+  organizerId      String            @db.Uuid
+  chainId          Int
+  tokenAddress     String            @db.VarChar(42)
+  organizerAddress String            @db.VarChar(42)
+  title            String?           @db.VarChar(80)
+  totalAmountUnits Decimal           @db.Decimal(78, 0)
+  state            String            @db.VarChar(32)
+  expiresAt        DateTime          @db.Timestamptz(6)
+  idempotencyKey   String            @db.VarChar(128)
+  requestHash      String            @db.Char(64)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+  organizer        User              @relation("OutgoingSplits", fields: [organizerId], references: [id], onDelete: Restrict)
+  obligations      SplitObligation[]
+
+  @@unique([organizerId, idempotencyKey])
+  @@index([organizerId, createdAt, id])
+  @@index([state, expiresAt])
+  @@map("splits")
+}
+
+model SplitObligation {
+  id                String         @id @default(uuid()) @db.Uuid
+  splitId           String         @db.Uuid
+  participantUserId String         @db.Uuid
+  participantAddress String        @db.VarChar(42)
+  amountUnits       Decimal        @db.Decimal(78, 0)
+  state             String         @db.VarChar(32)
+  paymentIntentId   String?        @unique @db.Uuid
+  createdAt         DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(6)
+  split             Split          @relation(fields: [splitId], references: [id], onDelete: Restrict)
+  participant       User           @relation(fields: [participantUserId], references: [id], onDelete: Restrict)
+  paymentIntent     PaymentIntent? @relation(fields: [paymentIntentId], references: [id], onDelete: Restrict)
+
+  @@unique([splitId, participantUserId])
+  @@index([participantUserId, state, createdAt])
+  @@map("split_obligations")
 }

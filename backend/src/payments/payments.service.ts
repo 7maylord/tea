@@ -591,10 +591,16 @@ export class PaymentsService implements OnModuleDestroy {
             data: { state: observed.state },
           }),
         ]);
-        if (observed.state === 'CONFIRMED' && intent.threadId) {
-          await tx.thread.update({
-            where: { id: intent.threadId },
-            data: { lastActivityAt: new Date() },
+        if (observed.state === 'CONFIRMED') {
+          if (intent.threadId) {
+            await tx.thread.update({
+              where: { id: intent.threadId },
+              data: { lastActivityAt: new Date() },
+            });
+          }
+          await tx.splitObligation.updateMany({
+            where: { paymentIntentId: intent.id },
+            data: { state: 'PAID' },
           });
         }
         return { nextAttempt, nextIntent };
@@ -687,10 +693,16 @@ export class PaymentsService implements OnModuleDestroy {
           where: { id },
           data: { state: observed.state },
         });
-        if (observed.state === 'CONFIRMED' && intent.threadId) {
-          await tx.thread.update({
-            where: { id: intent.threadId },
-            data: { lastActivityAt: new Date() },
+        if (observed.state === 'CONFIRMED') {
+          if (intent.threadId) {
+            await tx.thread.update({
+              where: { id: intent.threadId },
+              data: { lastActivityAt: new Date() },
+            });
+          }
+          await tx.splitObligation.updateMany({
+            where: { paymentIntentId: intent.id },
+            data: { state: 'PAID' },
           });
         }
         return { attempt, intent: updated };
