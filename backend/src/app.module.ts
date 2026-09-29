@@ -19,6 +19,7 @@ import { DateLocksController } from './date-locks/date-locks.controller';
 import { DateLocksService } from './date-locks/date-locks.service';
 import { SplitsController } from './splits/splits.controller';
 import { SplitsService } from './splits/splits.service';
+import { IndexerService } from './indexer/indexer.service';
 
 @Module({
   imports: [],
@@ -45,6 +46,7 @@ import { SplitsService } from './splits/splits.service';
     StreamsService,
     DateLocksService,
     SplitsService,
+    IndexerService,
   ],
 })
 export class AppModule {}

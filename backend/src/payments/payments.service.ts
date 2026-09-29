@@ -28,7 +28,8 @@ import {
 import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
-import { matchIndexedReceipt, type IndexedEvent } from './indexed-receipt';
+import { IndexerService } from '../indexer/indexer.service';
+import { matchIndexedReceipt } from './indexed-receipt';
 import { upsertThread } from './thread';
 
 const tokenAbi = tokenAbiJson as any;
@@ -45,48 +46,11 @@ export class PaymentsService implements OnModuleDestroy {
   constructor(
     private readonly sessions: SessionService,
     private readonly funds: FundsService,
+    private readonly indexer: IndexerService,
   ) {}
 
   async onModuleDestroy() {
     await this.db.$disconnect();
-  }
-
-  private async indexedEvents(hashes: string[]) {
-    const url = process.env.ENVIO_GRAPHQL_URL;
-    const secret = process.env.ENVIO_ADMIN_SECRET;
-    if (!url || !secret || hashes.length === 0) {
-      return { available: false, events: [] as IndexedEvent[] };
-    }
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-hasura-admin-secret': secret,
-        },
-        body: JSON.stringify({
-          query: `query($hashes: [String!]!) {
-            ChainEvent(where: {txHash: {_in: $hashes}}, limit: 100) {
-              id chainId txHash logIndex blockNumber blockHash contractAddress
-              eventType fromAddress toAddress amountUnits streamId claimId lockId unlockAt
-            }
-          }`,
-          variables: { hashes },
-        }),
-        signal: AbortSignal.timeout(3000),
-      });
-      if (!response.ok) throw new Error('Indexer unavailable');
-      const payload = (await response.json()) as {
-        data?: { ChainEvent?: IndexedEvent[] };
-        errors?: unknown[];
-      };
-      if (payload.errors?.length || !Array.isArray(payload.data?.ChainEvent)) {
-        throw new Error('Indexer response invalid');
-      }
-      return { available: true, events: payload.data.ChainEvent };
-    } catch {
-      return { available: false, events: [] as IndexedEvent[] };
-    }
   }
 
   async activity(identityToken: string | undefined, cursor?: string) {
@@ -139,7 +103,7 @@ export class PaymentsService implements OnModuleDestroy {
       intent.state === 'CONFIRMED' ||
       (intent.kind === 'CLAIM' &&
         (intent.state === 'OPEN' || intent.state === 'REFUNDED'));
-    const indexed = await this.indexedEvents(
+    const indexed = await this.indexer.eventsByHashes(
       visible
         .filter(hasIndexedReceipt)
         .flatMap((intent) => intent.attempts.map((attempt) => attempt.txHash)),
