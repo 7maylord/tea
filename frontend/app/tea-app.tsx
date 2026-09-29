@@ -223,18 +223,16 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
           <>
             {view === 'home' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
-              <h1 className="text-4xl font-semibold tracking-tight">Hello, @{session.handle}.</h1>
-              <p className="mt-4 text-stone-600">Your TEA account is ready on Monad testnet.</p>
+              <h1 className="text-4xl font-semibold tracking-tight">Hello, {session.handle}.</h1>
               <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
                 <p className="text-sm text-stone-300">Onchain balance</p>
                 <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
-                {visibleBalance && <p className="mt-2 text-xs text-stone-400">As of block {visibleBalance.blockNumber}</p>}
                 <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
               </div>
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
-            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} />}
+            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onSettled={refreshAfterPayment} />}
             {view === 'profile' && <>
               <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
               <h1 className="text-4xl font-semibold tracking-tight">Profile</h1>
@@ -255,7 +253,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
-      <footer className="pb-3 text-sm text-stone-500">Test funds only · Email recovery stays available</footer>
       {session?.handle && view !== 'send' && <nav aria-label="Main" className="sticky bottom-0 -mx-5 grid grid-cols-3 gap-2 border-t border-stone-200 bg-[#f6f2e9] px-5 py-2">
         {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}>{item}</button>)}
       </nav>}

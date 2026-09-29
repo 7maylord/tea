@@ -1,6 +1,7 @@
 "use client";
 
 import { PrivyProvider } from "@privy-io/react-auth";
+import { Toaster } from "sonner";
 import type { ReactNode } from "react";
 import { monadTestnet } from "viem/chains";
 
@@ -23,6 +24,7 @@ export default function Providers({
       }}
     >
       {children}
+      <Toaster richColors position="top-center" />
     </PrivyProvider>
   );
 }

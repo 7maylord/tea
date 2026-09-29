@@ -5,6 +5,7 @@ import { authHeaders } from "./auth";
 import { createPublicClient, custom, formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
+import { sendWithSponsorFallback } from "./send-transaction";
 import { useOnlineStatus } from "./pwa";
 
 type Balance = { token: string; decimals: number; symbol: string };
@@ -117,21 +118,24 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
     setBusy(true);
     setError("");
     try {
-      const request = draft ?? { createKey: crypto.randomUUID(), email, amountUnits };
-      if (!draft) {
-        sessionStorage.setItem(draftKey, JSON.stringify(request));
-        setDraft(request);
-      }
-      const claim = await auth("/v1/claims", {
-        method: "POST", headers: { "Idempotency-Key": request.createKey },
-        body: JSON.stringify({ recipientEmail: request.email, amountUnits: request.amountUnits }),
-      });
+      let record = saved?.stage === "APPROVAL_REQUESTED" ? saved : null;
+      const claim = record ? await auth(`/v1/claims/${record.id}`) : await (async () => {
+        const request = draft ?? { createKey: crypto.randomUUID(), email, amountUnits };
+        if (!draft) {
+          sessionStorage.setItem(draftKey, JSON.stringify(request));
+          setDraft(request);
+        }
+        return auth("/v1/claims", {
+          method: "POST", headers: { "Idempotency-Key": request.createKey },
+          body: JSON.stringify({ recipientEmail: request.email, amountUnits: request.amountUnits }),
+        });
+      })();
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, amountUnits);
-      const record: SavedClaim = { id: claim.id, email, amountUnits, depositKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
+      record ??= { id: claim.id, email, amountUnits, depositKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
       save(record);
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      const sent = await sendTransaction({ to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, { address, sponsor: true });
+      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted);
       await waitFor(sent.hash);
@@ -143,14 +147,14 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
 
   async function deposit() {
     if (!online) { setError("Reconnect before depositing this payment."); return; }
-    if (!saved || saved.stage !== "READY_DEPOSIT") return;
+    if (!saved || (saved.stage !== "READY_DEPOSIT" && saved.stage !== "DEPOSIT_REQUESTED")) return;
     setBusy(true);
     setError("");
     try {
       const claim = await auth(`/v1/claims/${saved.id}`);
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, saved.amountUnits);
       save({ ...saved, stage: "DEPOSIT_REQUESTED" });
-      const sent = await sendTransaction({ to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, { address, sponsor: true });
+      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, address);
       const submitted = { ...saved, stage: "DEPOSIT_SUBMITTED" as const, depositHash: sent.hash };
       save(submitted);
       await reconcile(submitted);
@@ -169,7 +173,8 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       {done ? <p className="mt-6 font-semibold text-emerald-800">Deposit confirmed. The invitation is queued.</p>
         : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve escrow deposit"}</button>
         : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
-        : saved.stage === "APPROVAL_REQUESTED" || saved.stage === "DEPOSIT_REQUESTED" ? <p className="mt-6 text-sm font-semibold text-amber-800">Wallet submission is uncertain. Check wallet activity before trying again.</p>
+        : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div>
+        : saved.stage === "DEPOSIT_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Deposit was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-4 w-full`}>{busy ? "Depositing…" : "Retry deposit"}</button></div>
         : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" disabled={!online} onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked."))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check approval</button>}</div>}
     </div>
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}

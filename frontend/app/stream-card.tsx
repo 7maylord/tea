@@ -6,6 +6,7 @@ import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOnlineStatus } from "./pwa";
 import { checkedStoredStreamAction, checkedStreamAction, type SavedStreamAction, type StreamAction, type StreamIntent } from "./stream-plan";
+import { sendWithSponsorFallback } from "./send-transaction";
 
 type StreamDetail = StreamIntent & { chainState: null | {
   start: string; end: string; withdrawnUnits: string; canceled: boolean;
@@ -99,7 +100,7 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
       const plan = checkedStreamAction(action, kind, wallet.address, stream.streamContract, stream.chainId, stream.streamId);
       const requested = { ...pending, actionId: action.id, stage: "WALLET_REQUESTED" as const };
       save(requested);
-      const sent = await sendTransaction({ to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, { address: wallet.address, sponsor: true });
+      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, wallet.address);
       const submitted = { ...requested, stage: "SUBMITTED" as const, hash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Stream action failed."); }

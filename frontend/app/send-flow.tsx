@@ -4,9 +4,12 @@ import { useSendTransaction } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
 import { formatUnits, parseUnits, type Hex } from "viem";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { checkedTransferPlan, type PaymentIntent } from "./payment-plan";
+import { sendWithSponsorFallback } from "./send-transaction";
 import ClaimSend from "./claim-send";
 import StreamSend from "./stream-send";
+import SplitSend from "./split-send";
 import { useOnlineStatus } from "./pwa";
 
 type Balance = { token: string; decimals: number; balanceUnits: string; symbol: string };
@@ -33,12 +36,11 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   const reconciling = useRef(false);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<"now" | "stream">("now");
+  const [mode, setMode] = useState<"now" | "stream" | "split">("now");
   const [duration, setDuration] = useState("86400");
   const [review, setReview] = useState<Review | null>(null);
   const [draft, setDraft] = useState<DirectDraft | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
-  const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const storageKey = `tea:payment:${userId}`;
@@ -76,8 +78,10 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
     const timer = window.setTimeout(() => {
       try {
         const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Pending | null;
-        if (saved && /^[0-9a-f-]{36}$/.test(saved.id) && /^[0-9a-f-]{36}$/.test(saved.submitKey) &&
-          (saved.hash === null || /^0x[0-9a-f]{64}$/.test(saved.hash))) setPending(saved);
+        if (saved && /^[0-9a-f-]{36}$/.test(saved.id) && /^[0-9a-f-]{36}$/.test(saved.submitKey)) {
+          if (saved.hash && /^0x[0-9a-f]{64}$/.test(saved.hash)) setPending(saved);
+          else { sessionStorage.removeItem(storageKey); toast.info("No transaction was submitted. Try again when ready."); }
+        }
       } catch { /* A broken local record cannot authorize a payment. */ }
       try {
         const saved = JSON.parse(sessionStorage.getItem(reviewKey) ?? "null") as Review | null;
@@ -105,12 +109,17 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       if (result.state === "CONFIRMED") {
         sessionStorage.removeItem(storageKey);
         setPending(null);
-        setDone(true);
+        setReview(null);
+        setRecipient("");
+        setAmount("");
+        setMode("now");
+        setDuration("86400");
         setError("");
+        toast.success("Payment confirmed.");
         settled();
       }
     } catch {
-      setError("The transaction was submitted. Confirmation is still being checked.");
+      // Keep polling quietly; the submission toast already told the user it is checking.
     } finally {
       reconciling.current = false;
     }
@@ -183,20 +192,19 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       }) as PaymentIntent;
       const plan = checkedTransferPlan(intent, address, balance.token, chainId, request.amountUnits);
       const record: Pending = { id: intent.id, submitKey: crypto.randomUUID(), hash: null };
-      sessionStorage.setItem(storageKey, JSON.stringify(record));
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      setPending(record);
-      const sent = await sendTransaction({ to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, {
-        address,
-        sponsor: true,
-      });
+      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, hash: sent.hash };
       sessionStorage.setItem(storageKey, JSON.stringify(submitted));
       setPending(submitted);
+      setReview(null);
+      toast.info("Payment submitted. Checking confirmation…");
       await reconcile(submitted);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not submit the payment.");
+      sessionStorage.removeItem(storageKey);
+      setPending(null);
+      toast.error(cause instanceof Error ? cause.message : "Could not submit the payment.");
     } finally { setBusy(false); }
   }
 
@@ -204,10 +212,10 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
     {review?.kind === "claim" ? <ClaimSend apiOrigin={apiOrigin} userId={userId} email={review.email} amountUnits={review.amountUnits} address={address} chainId={chainId} balance={balance!} onBack={clearReview} onSettled={settled} /> : review?.kind === "stream" ? <StreamSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} durationSeconds={review.durationSeconds} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : <>
     <button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← Back</button>
     <h1 className="text-4xl font-semibold tracking-tight">Send money</h1>
-    {done ? <div className="mt-8 rounded-2xl bg-emerald-50 p-5"><p className="font-semibold text-emerald-900">Payment confirmed.</p><button type="button" onClick={onBack} className={`${button} mt-5`}>Done</button></div>
-      : pending ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="font-semibold">{pending.hash ? "Checking your payment" : "Wallet submission is uncertain"}</p><p className="mt-2 text-sm text-stone-600">{pending.hash ? "Your transaction is saved. You can leave this screen; it will be checked when you return." : "Do not send again until you have checked whether your wallet submitted the transaction."}</p>{pending.hash && <button type="button" disabled={!online} onClick={() => void reconcile(pending)} className="mt-5 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button>}</div>
+    {!review && <fieldset className="mt-8"><legend className="font-medium">When</legend><div className="mt-2 grid grid-cols-3 gap-2">{([['now', 'Send now'], ['stream', 'Over time'], ['split', 'Split']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`min-h-12 rounded-xl border px-3 font-semibold ${mode === value ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white"}`}>{label}</button>)}</div></fieldset>}
+    {mode === "split" && !review ? <SplitSend apiOrigin={apiOrigin} balance={balance} onSettled={settled} />
       : review ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="text-sm text-stone-500">To</p><p className="mt-1 text-xl font-semibold">{review.recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} {balance?.symbol}</p><p className="mt-5 text-sm text-stone-600">Review the wallet confirmation before signing.</p><button type="button" disabled={busy || !online} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : draft ? "Retry setup" : "Confirm and send"}</button><button type="button" disabled={busy} onClick={clearReview} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button></div>
-      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><fieldset><legend className="font-medium">When</legend><div className="mt-2 grid grid-cols-2 gap-2">{([['now', 'Send now'], ['stream', 'Over time']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`min-h-12 rounded-xl border px-3 font-semibold ${mode === value ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white"}`}>{label}</button>)}</div></fieldset><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" />{mode === "stream" && <><label htmlFor="duration" className="font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}<p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
+      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" />{mode === "stream" && <><label htmlFor="duration" className="font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}<p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     </>}
   </>;
