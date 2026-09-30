@@ -24,6 +24,7 @@ export function matchIndexedReceipt(
     tokenAddress: string;
     streamAddress: string | null;
     dateUnlockAddress?: string | null;
+    unlockAt?: Date | null;
     payerAddress: string;
     recipientAddress: string;
     amountUnits: { toString(): string };
@@ -84,7 +85,10 @@ export function matchIndexedReceipt(
       (intent.kind !== 'STREAM' ||
         event.streamId === intent.streamId?.toString()) &&
       (intent.kind !== 'DATE_LOCK' ||
-        event.lockId === intent.dateLockId?.toString()) &&
+        (event.lockId === intent.dateLockId?.toString() &&
+          (!intent.unlockAt ||
+            event.unlockAt ===
+              Math.floor(intent.unlockAt.getTime() / 1000).toString()))) &&
       (intent.kind !== 'CLAIM' || event.claimId === intent.claimId),
   );
   return match

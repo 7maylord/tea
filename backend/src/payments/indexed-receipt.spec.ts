@@ -196,6 +196,7 @@ it('matches a date-lock creation by lock ID', () => {
     amountUnits: '2500000',
     streamId: null,
     dateLockId: '8',
+    unlockAt: new Date(1_790_359_253_000),
     claimId: null,
   };
   const attempt = {
@@ -222,6 +223,11 @@ it('matches a date-lock creation by lock ID', () => {
   };
   expect(
     matchIndexedReceipt(intent, attempt, [{ ...event, lockId: '9' }]),
+  ).toBeNull();
+  expect(
+    matchIndexedReceipt(intent, attempt, [
+      { ...event, unlockAt: '1790359254' },
+    ]),
   ).toBeNull();
   expect(matchIndexedReceipt(intent, attempt, [event])?.id).toBe(event.id);
 });
