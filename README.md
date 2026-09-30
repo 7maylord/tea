@@ -6,6 +6,11 @@ TEA is a mobile-first PWA for instant and programmable stablecoin payments. Send
 
 Built for **Monad Metropolis (Consumer Products & Payments)**.
 
+## Live deployments
+
+- Frontend: https://usetea.vercel.app/
+- Backend: https://usetea.up.railway.app/
+
 ## Features
 
 - **Email OTP onboarding + embedded wallet + unique handle** via Privy.
