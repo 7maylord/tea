@@ -33,7 +33,7 @@ Set production env vars on the host or in `backend/.env.production`:
 - `ENVIO_GRAPHQL_URL`
 - `ENVIO_ADMIN_SECRET` when the GraphQL endpoint requires it
 
-The backend image runs `pnpm db:migrate` before `node dist/main.js`. Health checks:
+The backend image runs `pnpm db:migrate` before `node dist/main.js`. On Railway, create a Postgres service, then set the backend service variable `DATABASE_URL` as a reference to the database service value, for example `${{Postgres.DATABASE_URL}}` if the service is named `Postgres`. Delete any manually created blank `DATABASE_URL`; Prisma treats an empty string as invalid. Add Redis the same way for `REDIS_URL`. Health checks:
 
 ```sh
 curl https://<backend-host>/health/live
