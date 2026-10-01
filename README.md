@@ -2,7 +2,7 @@
 
 > Send money like a message — even before someone joins.
 
-TEA is a mobile-first PWA for instant and programmable stablecoin payments. Send dollars by handle or email, let someone claim money before they have an account, and stream pay over time from the same payment thread. Recipients start with an email address; TEA handles wallet setup and transaction fees.
+TEA is a mobile-first PWA for stablecoin payments on Monad testnet. Users sign in with email, get a Privy embedded wallet, pick a unique handle, and send test USD by handle or email. The app supports direct sends, email claim links, funded payment streams, date-locked payments, split requests, private payment threads, and Envio-backed receipts.
 
 Built for **Monad Metropolis (Consumer Products & Payments)**.
 
@@ -13,159 +13,195 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 
 ## Features
 
-- **Email OTP onboarding + embedded wallet + unique handle** via Privy.
-- **Direct send to existing users** — ordinary ERC-20 `transfer` from the sender's settlement wallet. Immutable intents, idempotency keys, reservations, reconnect/refresh recovery, no double-send.
-- **Email claim escrow** (`TeaClaimEscrow`) — send to an email with no TEA account. 14-day expiry, opaque invite link, 5-minute EIP-712 identity authorization + recipient EIP-712 acceptance, relayer submission, payer-only refund.
-- **Funded linear streams** (`TeaStream`) — fully funded, fixed-duration, recipient collects accrued funds, sender can cancel and recover only the unaccrued portion.
-- **Payment threads + private activity** — one thread per user pair per chain; direct payments, claimed email payments, and streams share a thread. Envio supplies canonical receipts; confirmed chain state wins over optimistic UI.
-- **Mobile PWA** — works at 320 CSS px, primary 360–430 px, verified 768/1280 px; 44px touch targets, 16px inputs, safe areas, skeletons, offline send blocking, service worker excludes private routes.
+- **Email onboarding** — Privy email OTP, embedded wallet, and immutable handle.
+- **Direct send** — ERC-20 transfer to another TEA user with backend intent tracking and receipt verification.
+- **Send by email** — `TeaClaimEscrow` holds funds for an invited email recipient; unclaimed funds can be refunded after expiry.
+- **Streams** — `TeaStream` funds a fixed-duration stream up front; recipients collect accrued funds and senders can cancel the unaccrued remainder.
+- **Date unlock** — `TeaDateUnlock` releases the full funded amount to the recipient after a chosen date.
+- **Split requests** — offchain split ledger for tracking who should pay whom.
+- **Private activity** — backend-owned threads with Envio receipts attached only after canonical event matches.
+- **Mobile PWA** — responsive send, claim, stream, split, and activity flows.
+
+## Deployed Monad testnet contracts
+
+| Contract | Address |
+| --- | --- |
+| TestUSD | `0x82cE012544F85E33930C5272bdeAE76736A8F22b` |
+| TeaStream | `0x3379CdE825960C49b456c62f6bb485902B7dA830` |
+| TeaClaimEscrow | `0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814` |
+| TeaDateUnlock | `0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84` |
+
+Chain ID: `10143`. Indexers should start at block `65515139`.
 
 ## Repo layout
 
 ```text
 tea/
-  frontend/       # Next.js App Router PWA (auth, send, claims, streams, activity)
-  backend/        # NestJS API + workers (auth, users, payments, claims, streams, activity)
-    src/modules: identity/, funds/, payments/, claims/, streams/
-    prisma/       # schema + migrations
-    scripts/      # check-network.mjs
-    test/         # *.integration-spec.ts per domain
-  contracts/      # Foundry: TeaClaimEscrow, TeaStream, scripts, abi/, tests
+  frontend/       # Next.js App Router PWA
+  backend/        # NestJS API, Prisma, workers, payment orchestration
+  contracts/      # Foundry contracts, deployment scripts, ABI exports
   indexer/        # Envio HyperIndex config, schema, handlers
-  infrastructure/ # compose.yaml (Postgres 16, Redis 7)
-  docs/           # local-development, integrations, implementation-plan, decisions/
-  TEA.md          # Product + Technical Requirements v1.0 (implementation spec)
-  TAB_SPEC.md     # Superseded predecessor spec
+  infrastructure/ # Docker compose templates
+  docs/           # deployment notes, integrations, implementation history
 ```
 
 ## Stack
 
-| Component       | Choice                                                                                     |
-| --------------- | ------------------------------------------------------------------------------------------ |
-| Frontend        | Next.js 16, React 19, TypeScript, Tailwind 4, PWA + Playwright                             |
-| Backend         | NestJS 11 + Express, TypeScript, Prisma 6 + Postgres 16, Redis 7                           |
-| Chain client    | viem 2.56.7, shared typed ABIs, explicit chain config                                      |
-| Contracts       | Solidity + Foundry, OpenZeppelin (submodules)                                              |
-| Identity/wallet | Privy (`@privy-io/react-auth` 3.43.0, `@privy-io/node` 0.34.0), EIP-7702 app-pays (Gate A) |
-| Indexing        | Envio HyperIndex 3 → backend GraphQL consumption                                           |
-| Email           | Resend                                                                                     |
-| Package mgmt    | pnpm, separate lockfiles per app (`frontend/`, `backend/`, `indexer/`)                     |
+| Component | Choice |
+| --- | --- |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind 4, PWA |
+| Backend | NestJS 11 + Express, Prisma 6, Postgres, Redis |
+| Chain client | viem 2.56.7 with JSON ABI imports |
+| Contracts | Solidity, Foundry, OpenZeppelin |
+| Identity/wallet | Privy email auth + embedded wallets |
+| Indexing | Envio HyperIndex GraphQL consumed by backend |
+| Email | Resend |
+| Package management | pnpm, separate lockfiles per app |
 
-## Prerequisites
+## Local development
 
-- Node 20+, pnpm 10, Docker, Foundry (`forge`, `cast`, `anvil`), `jq`
+Prerequisites: Node 20+, pnpm 10, Docker, Foundry, and `jq`.
 
-## Quickstart (local Anvil stack)
+Start Postgres and Redis:
 
 ```sh
-# 1. Local services
 docker compose -f infrastructure/compose.yaml up -d --wait
-
-# 2. Anvil (new terminal)
-anvil --host 127.0.0.1 --port 8545 --chain-id 31337
-
-# 3. Deploy faucet token + stream + escrow (from contracts/)
-git submodule update --init --recursive
-ANVIL_SENDER=$(cast rpc eth_accounts --rpc-url http://127.0.0.1:8545 | jq -r '.[0]')
-forge script script/LocalDeploy.s.sol:LocalDeployScript \
-  --rpc-url http://127.0.0.1:8545 --sender "$ANVIL_SENDER" --unlocked --broadcast
-# note printed TOKEN / STREAM / ESCROW addresses
-
-# 4. Chain sanity check
-TEA_TOKEN_ADDRESS=<token> TEA_STREAM_ADDRESS=<stream> bash contracts/script/smoke-anvil.sh
-
-# 5. Backend (from backend/)
-cp .env.example .env   # fill SETTLEMENT_TOKEN, TEA_STREAM_ADDRESS, CLAIM_ESCROW_ADDRESS + keys below
-pnpm install
-DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea pnpm db:generate
-DATABASE_URL=postgresql://tea:tea_local_only@127.0.0.1:55432/tea pnpm db:migrate
-set -a; . ./.env; set +a
-pnpm run start:dev     # :3001, GET /health/live
-
-# 6. Frontend (from frontend/)
-cp .env.example .env   # NEXT_PUBLIC_PRIVY_APP_ID, NEXT_PUBLIC_API_ORIGIN, NEXT_PUBLIC_CHAIN_ID=31337
-pnpm install
-pnpm run dev           # http://127.0.0.1:3000
-
-# 7. Indexer (from indexer/)
-cp .env.example .env   # override addresses if LocalDeploy printed different ones
-pnpm install
-pnpm codegen && pnpm check
-ENVIO_TUI=false ENVIO_PG_PORT=55433 pnpm dev  # GraphQL http://127.0.0.1:8080/v1/graphql
 ```
 
-Then: verify network config, run domain tests (below), onboard two test users in the browser, `Get 20 test USD`, send → claim → stream. Stop with `docker compose -f infrastructure/compose.yaml down` (`-v` wipes local DB/queue).
+Backend:
+
+```sh
+cd backend
+cp .env.example .env
+pnpm install
+pnpm db:generate
+pnpm db:migrate
+pnpm start:dev
+```
+
+Frontend:
+
+```sh
+cd frontend
+cp .env.example .env
+pnpm install
+pnpm dev
+```
+
+Indexer:
+
+```sh
+cd indexer
+cp .env.example .env
+pnpm install
+pnpm codegen
+pnpm check
+ENVIO_TUI=false ENVIO_PG_PORT=55433 pnpm dev
+```
+
+Local backend health:
+
+```sh
+curl http://127.0.0.1:3001/health/live
+curl http://127.0.0.1:3001/health/indexer
+```
 
 ## Configuration
 
-Backend `backend/.env.example` (never commit real values):
+Backend env lives in `backend/.env` locally and platform env vars in production:
 
 ```text
 APP_ENV, PORT, APP_ORIGIN, API_ORIGIN
 CHAIN_ID, RPC_URL, SETTLEMENT_TOKEN, SETTLEMENT_TOKEN_DECIMALS
-CLAIM_ESCROW_ADDRESS, TEA_STREAM_ADDRESS
-DATABASE_URL, REDIS_URL, ENVIO_GRAPHQL_URL, ENVIO_ADMIN_SECRET
+CLAIM_ESCROW_ADDRESS, TEA_STREAM_ADDRESS, TEA_DATE_UNLOCK_ADDRESS
+DATABASE_URL, REDIS_URL
 PRIVY_APP_ID, PRIVY_APP_SECRET
-IDENTITY_LOOKUP_HMAC_KEY, IDENTITY_ENCRYPTION_KEY (openssl rand -base64 32, separate)
-CLAIM_IDENTITY_SIGNER_PRIVATE_KEY, RELAYER_PRIVATE_KEY (Anvil-only keys locally)
+IDENTITY_LOOKUP_HMAC_KEY, IDENTITY_ENCRYPTION_KEY
+CLAIM_IDENTITY_SIGNER_PRIVATE_KEY, RELAYER_PRIVATE_KEY
 EMAIL_PROVIDER_KEY, EMAIL_FROM
-FEATURE_DATE_UNLOCK, FEATURE_SPLITS, FEATURE_AURORA (all false in P0)
+ENVIO_GRAPHQL_URL, ENVIO_ADMIN_SECRET
 ```
 
-Frontend (`NEXT_PUBLIC_PRIVY_APP_ID`, `NEXT_PUBLIC_API_ORIGIN`, `NEXT_PUBLIC_CHAIN_ID` — only `31337`/`10143` enable sign-in). Indexer (`ENVIO_RPC_URL`, `SETTLEMENT_TOKEN`, `TEA_STREAM_ADDRESS`, `CLAIM_ESCROW_ADDRESS`, `ENVIO_PG_PORT=55433` to avoid clashing with local Postgres).
+Frontend public env:
 
-Before touching any settlement network, from `backend/`:
+```text
+NEXT_PUBLIC_PRIVY_APP_ID
+NEXT_PUBLIC_API_ORIGIN
+NEXT_PUBLIC_CHAIN_ID
+NEXT_PUBLIC_SETTLEMENT_TOKEN
+NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS
+NEXT_PUBLIC_TEA_STREAM_ADDRESS
+NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS
+```
+
+Indexer env:
+
+```text
+ENVIO_RPC_URL
+SETTLEMENT_TOKEN
+TEA_STREAM_ADDRESS
+CLAIM_ESCROW_ADDRESS
+TEA_DATE_UNLOCK_ADDRESS
+```
+
+## Contracts
+
+- **`TeaClaimEscrow`** — email-claim deposits, EIP-712 authorization, recipient acceptance, payer refund after expiry.
+- **`TeaStream`** — funded linear streams with recipient withdrawal and sender cancellation.
+- **`TeaDateUnlock`** — funded date locks with recipient withdrawal after unlock.
+- **`TestUSD`** — test settlement token for Monad testnet.
+
+Useful checks:
 
 ```sh
-pnpm check:network  # asserts RPC chain ID, token bytecode/metadata/decimals at one block
+cd contracts
+forge build --offline
+forge test --offline
+forge fmt --check
 ```
 
-## Contracts (`contracts/`)
+## Backend API
 
-Only two app contracts in P0. Direct sends are plain ERC-20 transfers — no intermediary contract. Group split (P1) is an offchain request ledger, not a pooled contract.
+Main endpoints:
 
-- **`TeaStream`** — `create(recipient, amount, duration)`, recipient-only `withdraw`, sender-only pre-end `cancel`. Accrual: `floor(D * clamp(t-s,0,d) / d)`. Cancel freezes entitlement, refunds only unaccrued funds. Emits `StreamCreated/Withdrawn/Canceled`. ABI: `abi/TeaStream.json` (regen: `forge build --offline && jq '.abi' out/TeaStream.sol/TeaStream.json > abi/TeaStream.json`).
-- **`TeaClaimEscrow`** — one immutable token, 14-day expiry. `deposit(claimId, commitment, amount)`, `claim(authorization, identitySignature, recipientSignature)` (EIP-712 domain `TeaClaimEscrow` v1 + ERC-1271 for smart accounts), `refund(claimId)` to stored payer only. Emits `ClaimDeposited/Paid/Refunded`. ABI: `abi/TeaClaimEscrow.json`. Pause blocks deposits/claims only; signer rotation increments epoch and invalidates outstanding authorizations; admin can never sweep user funds.
-- Scripts: `LocalDeploy.s.sol` (Anvil faucet+stream+escrow), `TeaStream.s.sol` (`SETTLEMENT_TOKEN`), `TeaClaimEscrow.s.sol` (+ `CLAIM_IDENTITY_SIGNER`, `CLAIM_ADMIN`).
+- `POST /v1/session/sync`
+- `POST /v1/me/handle`
+- `POST /v1/resolve`
+- `POST /v1/payments`
+- `POST /v1/claims`
+- `POST /v1/streams`
+- `POST /v1/date-locks`
+- `POST /v1/splits`
+- `GET /v1/activity`
+- `GET /v1/threads`
+
+Money-changing endpoints require authentication, `Idempotency-Key`, and backend verification of the submitted transaction.
+
+## Indexer
+
+Envio indexes these public onchain events into `ChainEvent` rows keyed by `(chainId, txHash, logIndex)`:
+
+- ERC-20 `Transfer`
+- `TeaClaimEscrow` deposit, paid, refunded
+- `TeaStream` created, withdrawn, canceled
+- `TeaDateUnlock` created, withdrawn
+
+The frontend does not call Envio directly. The backend uses `ENVIO_GRAPHQL_URL` to attach indexed receipts to authorized activity responses.
+
+## Checks
+
+Run the smallest relevant check for the folder you changed:
 
 ```sh
-forge build --offline && forge test --offline && forge fmt --check
+pnpm --dir backend lint:check
+pnpm --dir backend build
+pnpm --dir backend test
+
+pnpm --dir frontend build
+pnpm --dir frontend test:e2e
+
+pnpm --dir indexer codegen
+pnpm --dir indexer check
 ```
 
-## Backend (`backend/`)
-
-- `POST /v1/session/sync` (privy-id-token header) → verifies Privy token, links email + embedded wallet, creates user/account.
-- `POST /v1/me/handle` — immutable `[a-z0-9_]{3,20}`, one winner on races.
-- `POST /v1/resolve` — exact handle/email → expiring requester-bound recipient reference (Redis, 20/min/user). Unknown verified email → `unregistered` (claim path).
-- `POST /v1/payments` + `POST /v1/payments/:id/submission` + `GET /v1/payments/:id` — immutable intent + ERC-20 transfer plan, independent onchain verification, `RECONCILING` on unknown hashes.
-- `POST /v1/claims`, `POST /v1/claims/:id/deposit`, `POST /v1/claims/resolve-link`, `POST /v1/claims/:id/authorize`, `POST /v1/claims/:id/submit`, `POST /v1/claims/:id/resend` (1/min, 5/24h), `POST /v1/claims/:id/refund` + `start:claim-worker` (invite/relay/refund outbox jobs).
-- `POST /v1/streams`, `POST /v1/streams/:id/submission`, `GET /v1/streams/:id`, `POST /v1/streams/:id/withdraw|cancel`, `POST /v1/streams/:id/actions/:actionId/submission`.
-- `GET /v1/activity`, `GET /v1/threads`, `GET /v1/threads/:id` — payer sees pending attempts, recipient only confirmed; Envio `indexedReceipt` attached only on canonical match.
-- All money mutations require auth + `Idempotency-Key` + request-hash check (same key+payload replays, differing payload conflicts).
-
-## Frontend (`frontend/`)
-
-`app/`: `tea-app.tsx` shell, `send-flow.tsx` (Now / Over time), `claim-send.tsx`, `claim/[token]/`, `stream-send.tsx` + `stream-card.tsx`, `activity.tsx`, `payment-plan.ts` / `claim-plan.ts` / `stream-plan.ts` (exact-calldata validation before signing). Claim pages disable referrers/caching and reveal amounts only after matching-email verification. Stream cards tick from chain time + monotonic clock, mark stale offline.
-
-```sh
-pnpm install && pnpm dev
-pnpm exec playwright install chromium
-pnpm build && pnpm test:e2e   # public shell at 320/390/768/1280 px
-```
-
-Live two-user Privy journey needs controlled test emails + target-network sponsorship (Gate A).
-
-## Indexer (`indexer/`)
-
-Envio indexes `ERC20.Transfer` (known wallets), `TeaStream` lifecycle, `TeaClaimEscrow` lifecycle into `ChainEvent` keyed by `(chainId, txHash, logIndex)` with reorg rollback. Contains only public onchain data — backend enforces authorization. Local chain `31337`; target network needs reviewed chain ID/addresses/start blocks.
-
-## Testing
-
-| Layer     | Command (per-folder)                            | Covers                                                                                                              |
-| --------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------ | ---------- | ------------- | ----------- | ------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Contracts | `forge test --offline`                          | vesting, collect, cancel, rounding dust, token-failure rejection, access control, aggregate backing, fuzz/invariant |
-| Backend   | `pnpm test:db                                   | test:identity                                                                                                       | test:resolve | test:funds | test:payments | test:claims | test:streams` | Postgres/Redis/Anvil integration per domain; idempotency, reservations, signature-gated relay, refunds, conservation |
-| Frontend  | `pnpm test:plan`, `pnpm build && pnpm test:e2e` | plan validation, public PWA shell matrix                                                                            |
-| Manual    | two phones/browsers                             | OTP → handle → send → claim → stream collect/cancel, refresh/suspend recovery, worker restart + resubmission        |
-
-`GET /health/live` is liveness only (not DB/queue readiness).
+Production deployment notes live in `docs/deployment.md`; integration evidence lives in `docs/integrations.md`.
