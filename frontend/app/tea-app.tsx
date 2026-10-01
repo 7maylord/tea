@@ -123,10 +123,12 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         sessionStorage.removeItem(`tea:claim-draft:${session.id}`);
         sessionStorage.removeItem(`tea:stream:${session.id}`);
         sessionStorage.removeItem(`tea:stream-draft:${session.id}`);
+        sessionStorage.removeItem(`tea:date-lock:${session.id}`);
+        sessionStorage.removeItem(`tea:date-lock-draft:${session.id}`);
         sessionStorage.removeItem(`tea:send-review:${session.id}`);
         for (let index = sessionStorage.length - 1; index >= 0; index--) {
           const key = sessionStorage.key(index);
-          if (key?.startsWith(`tea:stream-action:${session.id}:`)) sessionStorage.removeItem(key);
+          if (key?.startsWith(`tea:stream-action:${session.id}:`) || key?.startsWith(`tea:date-lock-action:${session.id}:`)) sessionStorage.removeItem(key);
         }
       }
       setActive(null);

@@ -9,6 +9,7 @@ import { checkedTransferPlan, type PaymentIntent } from "./payment-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
 import ClaimSend from "./claim-send";
 import StreamSend from "./stream-send";
+import DateLockSend from "./date-lock-send";
 import SplitSend from "./split-send";
 import { useOnlineStatus } from "./pwa";
 
@@ -17,7 +18,8 @@ type Pending = { id: string; submitKey: string; hash: Hex | null };
 type Review =
   | { kind: "direct"; reference: string; recipient: string; amountUnits: string }
   | { kind: "claim"; email: string; amountUnits: string }
-  | { kind: "stream"; reference: string; recipient: string; amountUnits: string; durationSeconds: string };
+  | { kind: "stream"; reference: string; recipient: string; amountUnits: string; durationSeconds: string }
+  | { kind: "date"; reference: string; recipient: string; amountUnits: string; unlockAt: string };
 type DirectDraft = Extract<Review, { kind: "direct" }> & { createKey: string };
 
 const button = "min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900";
@@ -36,8 +38,9 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   const reconciling = useRef(false);
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
-  const [mode, setMode] = useState<"now" | "stream" | "split">("now");
+  const [mode, setMode] = useState<"now" | "stream" | "date" | "split">("now");
   const [duration, setDuration] = useState("86400");
+  const [unlockAt, setUnlockAt] = useState("");
   const [review, setReview] = useState<Review | null>(null);
   const [draft, setDraft] = useState<DirectDraft | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -88,6 +91,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         if (saved?.kind === "direct" && saved.reference && saved.recipient && /^\d+$/.test(saved.amountUnits)) setReview(saved);
         else if (saved?.kind === "claim" && saved.email && /^\d+$/.test(saved.amountUnits)) setReview(saved);
         else if (saved?.kind === "stream" && saved.reference && saved.recipient && /^\d+$/.test(saved.amountUnits) && /^\d+$/.test(saved.durationSeconds)) setReview(saved);
+        else if (saved?.kind === "date" && saved.reference && saved.recipient && /^\d+$/.test(saved.amountUnits) && Number.isFinite(Date.parse(saved.unlockAt))) setReview(saved);
       } catch { /* Ignore unusable screen recovery data. */ }
       try {
         const saved = JSON.parse(sessionStorage.getItem(draftKey) ?? "null") as DirectDraft | null;
@@ -114,6 +118,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         setAmount("");
         setMode("now");
         setDuration("86400");
+        setUnlockAt("");
         setError("");
         toast.success("Payment confirmed.");
         settled();
@@ -161,11 +166,14 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         saveReview({ kind: "claim", email: value, amountUnits: units.toString() });
       } else if (result.kind === "existing" && result.reference) {
         const display = result.recipient?.handle ? `@${result.recipient.handle}` : value;
-        saveReview(mode === "stream"
-          ? { kind: "stream", reference: result.reference, recipient: display, amountUnits: units.toString(), durationSeconds: duration }
-          : { kind: "direct", reference: result.reference, recipient: display, amountUnits: units.toString() });
-      } else if (result.kind === "unregistered" && mode === "stream") {
-        throw new Error("Streams can only be sent to an existing TEA member.");
+        if (mode === "stream") saveReview({ kind: "stream", reference: result.reference, recipient: display, amountUnits: units.toString(), durationSeconds: duration });
+        else if (mode === "date") {
+          const date = new Date(unlockAt);
+          if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) throw new Error("Choose a future unlock time.");
+          saveReview({ kind: "date", reference: result.reference, recipient: display, amountUnits: units.toString(), unlockAt: date.toISOString() });
+        } else saveReview({ kind: "direct", reference: result.reference, recipient: display, amountUnits: units.toString() });
+      } else if (result.kind === "unregistered" && (mode === "stream" || mode === "date")) {
+        throw new Error(mode === "stream" ? "Streams can only be sent to an existing TEA member." : "Date locks can only be sent to an existing TEA member.");
       } else throw new Error("Recipient could not be verified.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Recipient could not be verified.");
@@ -209,13 +217,13 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   }
 
   return <>
-    {review?.kind === "claim" ? <ClaimSend apiOrigin={apiOrigin} userId={userId} email={review.email} amountUnits={review.amountUnits} address={address} chainId={chainId} balance={balance!} onBack={clearReview} onSettled={settled} /> : review?.kind === "stream" ? <StreamSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} durationSeconds={review.durationSeconds} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : <>
+    {review?.kind === "claim" ? <ClaimSend apiOrigin={apiOrigin} userId={userId} email={review.email} amountUnits={review.amountUnits} address={address} chainId={chainId} balance={balance!} onBack={clearReview} onSettled={settled} /> : review?.kind === "stream" ? <StreamSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} durationSeconds={review.durationSeconds} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : review?.kind === "date" ? <DateLockSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} unlockAt={review.unlockAt} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : <>
     <button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← Back</button>
     <h1 className="text-4xl font-semibold tracking-tight">Send money</h1>
-    {!review && <fieldset className="mt-8"><legend className="font-medium">When</legend><div className="mt-2 grid grid-cols-3 gap-2">{([['now', 'Send now'], ['stream', 'Over time'], ['split', 'Split']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`min-h-12 rounded-xl border px-3 font-semibold ${mode === value ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white"}`}>{label}</button>)}</div></fieldset>}
+    {!review && <fieldset className="mt-8"><legend className="font-medium">When</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{([['now', 'Send now'], ['stream', 'Over time'], ['date', 'Unlock later'], ['split', 'Split']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`min-h-12 rounded-xl border px-3 font-semibold ${mode === value ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white"}`}>{label}</button>)}</div></fieldset>}
     {mode === "split" && !review ? <SplitSend apiOrigin={apiOrigin} balance={balance} onSettled={settled} />
       : review ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="text-sm text-stone-500">To</p><p className="mt-1 text-xl font-semibold">{review.recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} {balance?.symbol}</p><p className="mt-5 text-sm text-stone-600">Review the wallet confirmation before signing.</p><button type="button" disabled={busy || !online} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : draft ? "Retry setup" : "Confirm and send"}</button><button type="button" disabled={busy} onClick={clearReview} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button></div>
-      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" />{mode === "stream" && <><label htmlFor="duration" className="font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}<p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
+      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" />{mode === "stream" && <><label htmlFor="duration" className="font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}{mode === "date" && <><label htmlFor="unlock-at" className="font-medium">Unlock time</label><input id="unlock-at" type="datetime-local" value={unlockAt} onChange={(event) => setUnlockAt(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" /></>}<p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     </>}
   </>;
