@@ -60,12 +60,7 @@ Deploy path:
 
 1. Push this repository to GitHub.
 2. Connect `indexer/` to Envio Cloud or deploy it on your own infrastructure.
-3. Set the indexer's production env vars:
-   - `ENVIO_RPC_URL`
-   - `SETTLEMENT_TOKEN`
-   - `TEA_STREAM_ADDRESS`
-   - `CLAIM_ESCROW_ADDRESS`
-   - `TEA_DATE_UNLOCK_ADDRESS`
+3. Deploy with the public Monad testnet RPC and contract addresses already pinned in `indexer/config.yaml`.
 4. Put the resulting GraphQL URL in backend `ENVIO_GRAPHQL_URL`.
 5. Put the Hasura/GraphQL admin secret, if required, in backend `ENVIO_ADMIN_SECRET`.
 6. Check `/health/indexer` before opening the frontend to testers.

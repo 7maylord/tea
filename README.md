@@ -134,15 +134,7 @@ NEXT_PUBLIC_TEA_STREAM_ADDRESS
 NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS
 ```
 
-Indexer env:
-
-```text
-ENVIO_RPC_URL
-SETTLEMENT_TOKEN
-TEA_STREAM_ADDRESS
-CLAIM_ESCROW_ADDRESS
-TEA_DATE_UNLOCK_ADDRESS
-```
+The indexer has the public Monad testnet RPC and contract addresses pinned in `indexer/config.yaml`, so Envio Cloud does not need custom environment variables for the current deployment.
 
 ## Contracts
 

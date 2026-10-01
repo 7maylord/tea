@@ -23,17 +23,17 @@ contracts:
 chains:
   - id: 10143
     rpc:
-      url: ${ENVIO_RPC_URL:-https://testnet-rpc.monad.xyz}
+      url: https://testnet-rpc.monad.xyz
       for: sync
       initial_block_interval: 100
       interval_ceiling: 100
     start_block: 65515139
     contracts:
       - name: SettlementToken
-        address: ${SETTLEMENT_TOKEN:-0x82cE012544F85E33930C5272bdeAE76736A8F22b}
+        address: 0x82cE012544F85E33930C5272bdeAE76736A8F22b
       - name: TeaStream
-        address: ${TEA_STREAM_ADDRESS:-0x3379CdE825960C49b456c62f6bb485902B7dA830}
+        address: 0x3379CdE825960C49b456c62f6bb485902B7dA830
       - name: TeaClaimEscrow
-        address: ${CLAIM_ESCROW_ADDRESS:-0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814}
+        address: 0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814
       - name: TeaDateUnlock
-        address: ${TEA_DATE_UNLOCK_ADDRESS:-0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84}
+        address: 0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84
