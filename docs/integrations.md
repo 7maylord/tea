@@ -51,3 +51,19 @@ A bounded Monad smoke run emitted and indexed the required events with Envio fro
 | Direct payment intents | The API returns an unsigned ERC-20 transfer plan, records one transaction hash, validates the actual transfer and rechecks its receipt on status reads. Unknown hashes stay `RECONCILING` and reserved. | Verify client authorization and sponsorship on Monad testnet, handle safe replacement of an unresolved hash, and define confirmation depth before presenting a send flow. |
 
 Monad contract deployment and event indexing are verified. Gate A and the target-network part of Gate B still need real Privy OTP, wallet creation and sponsored transaction testing through the app.
+
+
+## Gate A live Privy sponsorship evidence
+
+Status: in progress. The frontend now sends Privy wallet transactions with `sponsor: true`, which the installed `@privy-io/react-auth` SDK exposes on `useSendTransaction` options. Complete this section from the deployed app after Railway has a non-empty `DATABASE_URL`, Redis, Privy app credentials and Envio GraphQL configured.
+
+| Check | Evidence | Result |
+|---|---|---|
+| Real email OTP login | tester email and timestamp, no secret OTP | pending |
+| Embedded EVM wallet created | wallet address and connector type from backend session | pending |
+| Backend session sync | `/v1/session/sync` succeeds and account screen loads | pending |
+| Sponsored direct transfer | Monad tx hash, sender, recipient, amount; sender starts with 0 MON or unchanged MON balance | pending |
+| Sponsored contract call | Monad tx hash for claim deposit, stream create or date-lock create; sender starts with 0 MON or unchanged MON balance | pending |
+| Limitation, if any | exact Privy/Railway/frontend error text | pending |
+
+If Privy rejects sponsorship, keep the tx error here and decide whether to demo user-paid gas or replace the sponsor path. Do not mark Gate A complete from SDK support alone.
