@@ -42,28 +42,25 @@ A bounded Monad smoke run emitted and indexed the required events with Envio fro
 | Dependency | Verified from official source | Still required |
 |---|---|---|
 | Monad testnet | Chain ID 10143 is listed in the [Monad changelog](https://docs.monad.xyz/developer-essentials/changelog). Contracts are deployed on Monad testnet, runtime code is present, constructor input matches local artifacts, and Envio indexed smoke events from Monad RPC. | Publish source verification to Sourcify/MonadScan after explicit approval, or keep bytecode verification as the internal check. |
-| Privy app-pays gas | [Privy's support list](https://docs.privy.io/wallets/gas-and-asset-management/gas/overview) includes Monad Testnet. It describes native EIP-7702 sponsorship for embedded wallets without a separate ERC-4337 settlement address. | Enable TEE execution, billing/credits, client sponsorship and Monad Testnet in the app dashboard; complete an actual sponsored token transfer. |
-| Privy client transaction | The [React transaction API](https://docs.privy.io/wallets/using-wallets/ethereum/send-a-transaction) exposes `sponsor: true`; the [setup guide](https://docs.privy.io/wallets/gas-and-asset-management/gas/setup) documents the required dashboard settings. | Pin and test the installed SDK. Verify the returned transaction and recipient balance onchain. |
-| TeaStream | Monad smoke created, canceled and withdrew streams, and Envio indexed `STREAM_CREATED`, `STREAM_CANCELED` and `STREAM_WITHDRAWN`. | Connect backend/frontend flows to the deployed addresses and Privy sponsorship. |
+| Privy app-pays gas | Live app test reached the wallet flow but failed with `App secret is required for gas sponsored transactions.` | Sponsorship is not available in the current Privy app configuration. Use user-paid Monad testnet gas unless a new sponsor path is chosen. |
+| Privy client transaction | The installed SDK exposes `sponsor: true`, but live testing showed that using it blocks transactions without the required Privy sponsorship secret/config. | The app submits wallet transactions without `sponsor: true` so funded Monad testnet wallets can continue. |
+| TeaStream | Monad smoke created, canceled and withdrew streams, and Envio indexed `STREAM_CREATED`, `STREAM_CANCELED` and `STREAM_WITHDRAWN`. | Complete deployed backend/frontend validation with funded user wallets. |
 | Privy identity sync | Backend pins `@privy-io/node` 0.34.0. `/v1/session/sync` verifies a Privy access token and fetches the current linked accounts with the user-query API. Its database behavior passes a mocked-provider integration test. | Test real OTP, token verification, email/wallet linkage, and recovery with app credentials. |
 | Recipient lookup | Exact handle/email lookup rechecks the recipient's current Privy linkage. Redis 7 stores a 5-minute requester-bound destination snapshot and enforces 20 lookups per user per minute, following the [Redis counter pattern](https://redis.io/docs/latest/commands/incr/). Local Postgres/Redis integration tests pass with mocked Privy data. | Validate real provider account changes and consume the reference in payment intents before enabling sends. |
 | Privy mobile onboarding | Frontend pins `@privy-io/react-auth` 3.43.0 and wires email login, Ethereum embedded-wallet creation, access-token sync, handle claim, and an optional passkey offer. Next.js lint and build pass without credentials; the SDK emits optional Farcaster/Solana and Tempo bundling warnings. | Configure an actual Privy app ID and secret, then verify OTP, wallet creation, email recovery, passkey behavior and backend sync on phones. |
-| Direct payment intents | The API returns an unsigned ERC-20 transfer plan, records one transaction hash, validates the actual transfer and rechecks its receipt on status reads. Unknown hashes stay `RECONCILING` and reserved. | Verify client authorization and sponsorship on Monad testnet, handle safe replacement of an unresolved hash, and define confirmation depth before presenting a send flow. |
+| Direct payment intents | The API returns an unsigned ERC-20 transfer plan, records one transaction hash, validates the actual transfer and rechecks its receipt on status reads. Unknown hashes stay `RECONCILING` and reserved. | Verify client authorization on Monad testnet with funded user wallets, handle safe replacement of an unresolved hash, and define confirmation depth before presenting a send flow. |
 
-Monad contract deployment and event indexing are verified. Gate A and the target-network part of Gate B still need real Privy OTP, wallet creation and sponsored transaction testing through the app.
+Monad contract deployment and event indexing are verified. Gate A sponsorship was tested through the app and failed in the current Privy configuration; target-network payment testing continues with user-paid Monad testnet gas.
 
 
-## Gate A live Privy sponsorship evidence
+## Gate A live Privy sponsorship result
 
-Status: in progress. The frontend now sends Privy wallet transactions with `sponsor: true`, which the installed `@privy-io/react-auth` SDK exposes on `useSendTransaction` options. Complete this section from the deployed app after Railway has a non-empty `DATABASE_URL`, Redis, Privy app credentials and Envio GraphQL configured.
+Status: failed in the current Privy configuration. The app previously sent Privy wallet transactions with `sponsor: true`, and the live send flow returned `App secret is required for gas sponsored transactions.` The frontend now omits `sponsor: true` so funded Monad testnet wallets can submit transactions normally.
 
 | Check | Evidence | Result |
 |---|---|---|
-| Real email OTP login | tester email and timestamp, no secret OTP | pending |
-| Embedded EVM wallet created | wallet address and connector type from backend session | pending |
-| Backend session sync | `/v1/session/sync` succeeds and account screen loads | pending |
-| Sponsored direct transfer | Monad tx hash, sender, recipient, amount; sender starts with 0 MON or unchanged MON balance | pending |
-| Sponsored contract call | Monad tx hash for claim deposit, stream create or date-lock create; sender starts with 0 MON or unchanged MON balance | pending |
-| Limitation, if any | exact Privy/Railway/frontend error text | pending |
+| Real Privy login/session | User reached the send flow after signing in with Privy. | passed enough to test send |
+| Sponsored direct transfer | Live send returned `App secret is required for gas sponsored transactions.` | failed |
+| Current transaction mode | Wallet submissions are user-paid on Monad testnet. | active |
 
-If Privy rejects sponsorship, keep the tx error here and decide whether to demo user-paid gas or replace the sponsor path. Do not mark Gate A complete from SDK support alone.
+Do not mark sponsored UX as complete unless Privy sponsorship is reconfigured and a new live Monad transaction succeeds with `sponsor: true`.
