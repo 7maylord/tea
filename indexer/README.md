@@ -1,6 +1,6 @@
 # TEA event indexer
 
-Envio HyperIndex 3 indexes the Monad testnet settlement token, TeaStream, TeaClaimEscrow and TeaDateUnlock events into `ChainEvent`. Each row is keyed by chain ID, transaction hash and log index; Envio handles chain reorg rollback. The indexer contains only public onchain data. TEA's backend must apply user authorization before returning private activity or threads.
+Envio HyperIndex 3 indexes the Monad testnet settlement token, TeaStream, TeaClaimEscrow and TeaDateUnlock events into `ChainEvent`. Each row is keyed by chain ID, transaction hash and log index; Envio handles chain reorg rollback. The indexer contains only public onchain data. TEA's backend no longer consumes this indexer at runtime; it verifies submitted receipts through Monad RPC. This indexer is kept as a standalone Metropolis Envio bounty deployment.
 
 From this folder:
 
@@ -16,6 +16,8 @@ The example sets `ENVIO_PG_PORT=55433` so Envio starts its own Postgres containe
 
 The config is pinned to the Monad testnet deployment recorded in `../docs/integrations.md`, starting at block 65515139. The Monad public RPC currently limits `eth_getLogs` ranges to 100 blocks, so the RPC interval is capped at 100. These deployment values are public onchain config; edit `config.yaml` if the deployment changes.
 
+For Metropolis judging, create or redeploy the Envio Cloud deployment on or after September 27. The Metropolis note says development-plan indexers are automatically deprecated once they are more than 30 days old.
+
 Envio's [configuration](https://docs.envio.dev/docs/HyperIndex/configuration-file), [event handler](https://docs.envio.dev/docs/HyperIndex/event-handlers) guides describe this configuration.
 
-Date locks emit `LOCK_CREATED` with `lockId`, sender, recipient, amount and `unlockAt`, and `LOCK_WITHDRAWN` with the full paid amount. These are public lifecycle rows; private backend date-lock receipt integration remains a separate checkpoint.
+Date locks emit `LOCK_CREATED` with `lockId`, sender, recipient, amount and `unlockAt`, and `LOCK_WITHDRAWN` with the full paid amount. These are public lifecycle rows for judging and bounty evidence.

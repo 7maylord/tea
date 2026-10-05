@@ -2,7 +2,7 @@
 
 > Send money like a message — even before someone joins.
 
-TEA is a mobile-first PWA for stablecoin payments on Monad testnet. Users sign in with email, get a Privy embedded wallet, pick a unique handle, and send test USD by handle or email. The app supports direct sends, email claim links, funded payment streams, date-locked payments, split requests, private payment threads, and Envio-backed receipts.
+TEA is a mobile-first PWA for stablecoin payments on Monad testnet. Users sign in with email, get a Privy embedded wallet, pick a unique handle, and send test USD by handle or email. The app supports direct sends, email claim links, funded payment streams, date-locked payments, split requests, and private payment threads.
 
 Built for **Monad Metropolis (Consumer Products & Payments)**.
 
@@ -19,7 +19,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 - **Streams** — `TeaStream` funds a fixed-duration stream up front; recipients collect accrued funds and senders can cancel the unaccrued remainder.
 - **Date unlock** — `TeaDateUnlock` releases the full funded amount to the recipient after a chosen date.
 - **Split requests** — offchain split ledger for tracking who should pay whom.
-- **Private activity** — backend-owned threads with Envio receipts attached only after canonical event matches.
+- **Private activity** — backend-owned threads backed by RPC-verified transaction submissions.
 - **Mobile PWA** — responsive send, claim, stream, split, and activity flows.
 
 ## Deployed Monad testnet contracts
@@ -31,7 +31,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 | TeaClaimEscrow | `0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814` |
 | TeaDateUnlock | `0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84` |
 
-Chain ID: `10143`. Indexers should start at block `65515139`.
+Chain ID: `10143`. Optional Envio bounty indexers should start at block `65515139`.
 
 ## Repo layout
 
@@ -40,7 +40,7 @@ tea/
   frontend/       # Next.js App Router PWA
   backend/        # NestJS API, Prisma, workers, payment orchestration
   contracts/      # Foundry contracts, deployment scripts, ABI exports
-  indexer/        # Envio HyperIndex config, schema, handlers
+  indexer/        # Optional Envio HyperIndex bounty deployment
   infrastructure/ # Docker compose templates
   docs/           # deployment notes, integrations, implementation history
 ```
@@ -54,7 +54,7 @@ tea/
 | Chain client | viem 2.56.7 with JSON ABI imports |
 | Contracts | Solidity, Foundry, OpenZeppelin |
 | Identity/wallet | Privy email auth + embedded wallets |
-| Indexing | Envio HyperIndex GraphQL consumed by backend |
+| Indexing | Backend verifies submitted transactions through Monad RPC; optional Envio indexer is deployable for the Metropolis bounty |
 | Email | Resend |
 | Package management | pnpm, separate lockfiles per app |
 
@@ -88,22 +88,11 @@ pnpm install
 pnpm dev
 ```
 
-Indexer:
-
-```sh
-cd indexer
-cp .env.example .env
-pnpm install
-pnpm codegen
-pnpm check
-ENVIO_TUI=false ENVIO_PG_PORT=55433 pnpm dev
-```
 
 Local backend health:
 
 ```sh
 curl http://127.0.0.1:3001/health/live
-curl http://127.0.0.1:3001/health/indexer
 ```
 
 ## Configuration
@@ -119,7 +108,6 @@ PRIVY_APP_ID, PRIVY_APP_SECRET
 IDENTITY_LOOKUP_HMAC_KEY, IDENTITY_ENCRYPTION_KEY
 CLAIM_IDENTITY_SIGNER_PRIVATE_KEY, RELAYER_PRIVATE_KEY
 EMAIL_PROVIDER_KEY, EMAIL_FROM
-ENVIO_GRAPHQL_URL, ENVIO_ADMIN_SECRET
 ```
 
 Frontend public env:
@@ -134,7 +122,6 @@ NEXT_PUBLIC_TEA_STREAM_ADDRESS
 NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS
 ```
 
-The indexer has the public Monad testnet RPC and contract addresses pinned in `indexer/config.yaml`, so Envio Cloud does not need custom environment variables for the current deployment.
 
 ## Contracts
 
@@ -169,31 +156,17 @@ Main endpoints:
 
 Money-changing endpoints require authentication, `Idempotency-Key`, and backend verification of the submitted transaction.
 
-## Indexer
+## Optional Envio bounty indexer
 
-Envio indexes these public onchain events into `ChainEvent` rows keyed by `(chainId, txHash, logIndex)`:
-
-- ERC-20 `Transfer`
-- `TeaClaimEscrow` deposit, paid, refunded
-- `TeaStream` created, withdrawn, canceled
-- `TeaDateUnlock` created, withdrawn
-
-The frontend does not call Envio directly. The backend uses `ENVIO_GRAPHQL_URL` to attach indexed receipts to authorized activity responses.
-
-## Checks
-
-Run the smallest relevant check for the folder you changed:
+The app does not require an Envio API URL. The backend verifies submitted transaction receipts directly against Monad RPC before confirming activity. The `indexer/` folder is kept as a standalone Envio HyperIndex deployment for Metropolis judging and the Envio bounty. Per the Metropolis note, development-plan indexers older than 30 days are deprecated, so create or redeploy the Envio Cloud deployment on or after September 27 for judging.
 
 ```sh
-pnpm --dir backend lint:check
-pnpm --dir backend build
-pnpm --dir backend test
-
-pnpm --dir frontend build
-pnpm --dir frontend test:e2e
-
-pnpm --dir indexer codegen
-pnpm --dir indexer check
+cd indexer
+pnpm install
+pnpm codegen
+pnpm check
 ```
 
-Production deployment notes live in `docs/deployment.md`; integration evidence lives in `docs/integrations.md`.
+## Hackathon sponsor fit
+
+The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact. The best aligned optional sponsor integrations are Agora for cross-border payments, Dynamic if replacing wallet onboarding, and Mercuryo if adding fiat on/off-ramp support.

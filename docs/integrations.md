@@ -24,9 +24,9 @@ Constructor-input verification compared each deployment transaction input with t
 | TeaClaimEscrow | yes | `0xa2fc8e4044af9e7493e1d00e5be647767ea675f29f9b301bfdc0fb3cbd9a4793` |
 | TeaDateUnlock | yes | `0x62dd46711335e50fd3e7f9904ef845fc841690dd7fa5eaaaee1f3d7c7ef10a96` |
 
-A bounded Monad smoke run emitted and indexed the required events with Envio from blocks 65636945 through 65637302. The generated rows covered `TRANSFER`, `STREAM_CREATED`, `STREAM_CANCELED`, `CLAIM_DEPOSITED`, `CLAIM_PAID`, `LOCK_CREATED`, `STREAM_WITHDRAWN` and `LOCK_WITHDRAWN`. The committed Envio config starts from deployment block 65515139 and caps RPC log ranges at 100 blocks for Monad's public RPC.
+A bounded Monad smoke run emitted the required events from blocks 65636945 through 65637302. The generated logs covered `TRANSFER`, `STREAM_CREATED`, `STREAM_CANCELED`, `CLAIM_DEPOSITED`, `CLAIM_PAID`, `LOCK_CREATED`, `STREAM_WITHDRAWN` and `LOCK_WITHDRAWN`. Hosted Envio was later decoupled from the app because using its API URL at runtime requires a paid plan; the backend now verifies submitted transaction receipts directly through Monad RPC. The standalone `indexer/` remains available for Metropolis Envio bounty deployment.
 
-| Flow | Transaction | Indexed event rows |
+| Flow | Transaction | Observed event logs |
 |---|---|---|
 | Mint test funds | `0x7f50cef02508d132a73066197bf9aae4dca92d686b12de13934e9a8d83b84e5c` | `TRANSFER` |
 | Direct send | `0x0b6f121a918f16e8fba317b69dcfe1f16a05fe7d5340825e08e48347fdc8f203` | `TRANSFER` |
@@ -41,16 +41,16 @@ A bounded Monad smoke run emitted and indexed the required events with Envio fro
 
 | Dependency | Verified from official source | Still required |
 |---|---|---|
-| Monad testnet | Chain ID 10143 is listed in the [Monad changelog](https://docs.monad.xyz/developer-essentials/changelog). Contracts are deployed on Monad testnet, runtime code is present, constructor input matches local artifacts, and Envio indexed smoke events from Monad RPC. | Publish source verification to Sourcify/MonadScan after explicit approval, or keep bytecode verification as the internal check. |
+| Monad testnet | Chain ID 10143 is listed in the [Monad changelog](https://docs.monad.xyz/developer-essentials/changelog). Contracts are deployed on Monad testnet, runtime code is present, constructor input matches local artifacts, and smoke transactions emitted the expected Monad logs. | Publish source verification to Sourcify/MonadScan after explicit approval, or keep bytecode verification as the internal check. |
 | Privy app-pays gas | Live app test reached the wallet flow but failed with `App secret is required for gas sponsored transactions.` | Sponsorship is not available in the current Privy app configuration. Use user-paid Monad testnet gas unless a new sponsor path is chosen. |
 | Privy client transaction | The installed SDK exposes `sponsor: true`, but live testing showed that using it blocks transactions without the required Privy sponsorship secret/config. | The app submits wallet transactions without `sponsor: true` so funded Monad testnet wallets can continue. |
-| TeaStream | Monad smoke created, canceled and withdrew streams, and Envio indexed `STREAM_CREATED`, `STREAM_CANCELED` and `STREAM_WITHDRAWN`. | Complete deployed backend/frontend validation with funded user wallets. |
+| TeaStream | Monad smoke created, canceled and withdrew streams, emitting `STREAM_CREATED`, `STREAM_CANCELED` and `STREAM_WITHDRAWN`. | Complete deployed backend/frontend validation with funded user wallets. |
 | Privy identity sync | Backend pins `@privy-io/node` 0.34.0. `/v1/session/sync` verifies a Privy access token and fetches the current linked accounts with the user-query API. Its database behavior passes a mocked-provider integration test. | Test real OTP, token verification, email/wallet linkage, and recovery with app credentials. |
 | Recipient lookup | Exact handle/email lookup rechecks the recipient's current Privy linkage. Redis 7 stores a 5-minute requester-bound destination snapshot and enforces 20 lookups per user per minute, following the [Redis counter pattern](https://redis.io/docs/latest/commands/incr/). Local Postgres/Redis integration tests pass with mocked Privy data. | Validate real provider account changes and consume the reference in payment intents before enabling sends. |
 | Privy mobile onboarding | Frontend pins `@privy-io/react-auth` 3.43.0 and wires email login, Ethereum embedded-wallet creation, access-token sync, handle claim, and an optional passkey offer. Next.js lint and build pass without credentials; the SDK emits optional Farcaster/Solana and Tempo bundling warnings. | Configure an actual Privy app ID and secret, then verify OTP, wallet creation, email recovery, passkey behavior and backend sync on phones. |
 | Direct payment intents | The API returns an unsigned ERC-20 transfer plan, records one transaction hash, validates the actual transfer and rechecks its receipt on status reads. Unknown hashes stay `RECONCILING` and reserved. | Verify client authorization on Monad testnet with funded user wallets, handle safe replacement of an unresolved hash, and define confirmation depth before presenting a send flow. |
 
-Monad contract deployment and event indexing are verified. Gate A sponsorship was tested through the app and failed in the current Privy configuration; target-network payment testing continues with user-paid Monad testnet gas.
+Monad contract deployment and event emission are verified. Gate A sponsorship was tested through the app and failed in the current Privy configuration; target-network payment testing continues with user-paid Monad testnet gas.
 
 
 ## Gate A live Privy sponsorship result
@@ -64,3 +64,19 @@ Status: failed in the current Privy configuration. The app previously sent Privy
 | Current transaction mode | Wallet submissions are user-paid on Monad testnet. | active |
 
 Do not mark sponsored UX as complete unless Privy sponsorship is reconfigured and a new live Monad transaction succeeds with `sponsor: true`.
+
+## Metropolis sponsor fit
+
+Checked 5 October 2026 from the official Metropolis page. The page lists sponsored prizes and bounties including Envio, Dynamic, Alchemy, Chainlink, Perpl, Privy, Nansen, Agora, Tencent Hunyuan, Kimi, Alibaba Cloud Qwen, MetaMask and Aurora Intents, plus sponsor logos for Mercuryo, Quicknode, Tenderly, Zerion and others.
+
+Best fit for TEA now:
+
+| Sponsor | Fit | Decision |
+|---|---|---|
+| Agora | Strong fit: official page lists `Best Cross-Border Payments App on Monad`, which matches TEA's payments/remittance story. | Consider as optional integration/story after core flow works. |
+| Dynamic | Good fit if we replace Privy onboarding/wallet UX; official page lists `Best Use of Dynamic`. | Do not add unless replacing Privy. |
+| Mercuryo | Good fit for fiat/on-ramp narrative; official page lists product credits and integration support for winning teams. | Optional P1. |
+| Envio | Good bounty artifact but poor app runtime dependency: hosted API URL requires a paid plan for consumption. | Keep standalone `indexer/`; do not require it for backend/frontend. Redeploy on or after September 27 for judging. |
+| Privy | Already integrated for login/wallets, but sponsorship failed in current app config. | Keep auth/wallets; do not claim sponsorship. |
+| Kuru / Perpl / Nansen / Chainlink | Trading, risk, analytics or oracle oriented. | Not needed for P0 social payments. |
+| MetaMask / Aurora Intents | Potential wallet/bridging/liquidity extensions. | Optional only if core demo needs them. |

@@ -28,8 +28,6 @@ import {
 import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
-import { IndexerService } from '../indexer/indexer.service';
-import { matchIndexedReceipt } from './indexed-receipt';
 import { upsertThread } from './thread';
 
 const tokenAbi = tokenAbiJson as any;
@@ -46,7 +44,6 @@ export class PaymentsService implements OnModuleDestroy {
   constructor(
     private readonly sessions: SessionService,
     private readonly funds: FundsService,
-    private readonly indexer: IndexerService,
   ) {}
 
   async onModuleDestroy() {
@@ -99,15 +96,6 @@ export class PaymentsService implements OnModuleDestroy {
       },
     });
     const visible = rows.slice(0, this.activityPageSize);
-    const hasIndexedReceipt = (intent: (typeof visible)[number]) =>
-      intent.state === 'CONFIRMED' ||
-      (intent.kind === 'CLAIM' &&
-        (intent.state === 'OPEN' || intent.state === 'REFUNDED'));
-    const indexed = await this.indexer.eventsByHashes(
-      visible
-        .filter(hasIndexedReceipt)
-        .flatMap((intent) => intent.attempts.map((attempt) => attempt.txHash)),
-    );
     const items = visible.map((intent) => {
       const outgoing = intent.payerId === userId;
       return {
@@ -129,14 +117,10 @@ export class PaymentsService implements OnModuleDestroy {
         blockNumber: intent.attempts[0]?.blockNumber?.toString() ?? null,
         claimId: intent.claimId,
         claimExpiry: intent.claim?.expiry?.toISOString() ?? null,
-        indexedReceipt: hasIndexedReceipt(intent)
-          ? matchIndexedReceipt(intent, intent.attempts[0], indexed.events)
-          : null,
       };
     });
     return {
       items,
-      indexerAvailable: indexed.available,
       nextCursor:
         rows.length > this.activityPageSize
           ? items[this.activityPageSize - 1].id

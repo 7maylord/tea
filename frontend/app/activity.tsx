@@ -12,12 +12,12 @@ import { checkedTransferPlan, type PaymentIntent } from "./payment-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
 
 type Balance = { token: string; decimals: number; balanceUnits: string; symbol: string };
-type Payment = { id: string; kind: string; direction: string; state: string; amountUnits: string; createdAt: string; txHash: string | null; indexedReceipt: { id: string } | null; claimId: string | null; claimExpiry: string | null };
+type Payment = { id: string; kind: string; direction: string; state: string; amountUnits: string; createdAt: string; txHash: string | null; claimId: string | null; claimExpiry: string | null };
 type Thread = { id: string; counterpartyHandle: string | null; latestPayment: { kind: string; state: string } | null };
 type SplitObligation = { id: string; participantHandle: string | null; amountUnits: string; state: string; paymentIntentId: string | null; paymentState: string | null; txHash: string | null };
 type Split = { id: string; title: string | null; role: string; organizerHandle: string | null; state: string; totalAmountUnits: string; expiresAt: string; obligations: SplitObligation[] };
 type Page<T> = { items: T[]; nextCursor: string | null };
-type Detail = { counterpartyHandle: string | null; activity: Page<Payment> & { indexerAvailable: boolean } };
+type Detail = { counterpartyHandle: string | null; activity: Page<Payment> };
 
 function money(units: string) {
   const value = BigInt(units);
@@ -36,7 +36,6 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
   const [splits, setSplits] = useState<Split[]>([]);
   const [counterparty, setCounterparty] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [indexerAvailable, setIndexerAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [claimAction, setClaimAction] = useState<string | null>(null);
@@ -58,7 +57,6 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
         const detail = (await response.json()) as Detail;
         setPayments((current) => cursor ? [...current, ...detail.activity.items] : detail.activity.items);
         setCounterparty(detail.counterpartyHandle);
-        setIndexerAvailable(detail.activity.indexerAvailable);
         setNextCursor(detail.activity.nextCursor);
       } else {
         const page = (await response.json()) as Page<Thread>;
@@ -129,8 +127,7 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
     {selected ? <>
       <button type="button" onClick={() => { setSelected(null); setLoading(true); }} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← All activity</button>
       <h1 className="text-4xl font-semibold tracking-tight">{counterparty ? `@${counterparty}` : "Payment thread"}</h1>
-      {!indexerAvailable && payments.some((payment) => payment.state === "CONFIRMED") && <p role="status" className="mt-4 text-sm text-stone-600">Confirmed payments may take a moment to appear in activity.</p>}
-      <div className="mt-8 space-y-3">{payments.map((payment) => <article key={payment.id} className="rounded-2xl border border-stone-200 bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{payment.direction === "INCOMING" ? "Received" : "Sent"} · {payment.kind === "STREAM" ? "Stream" : payment.kind === "DATE_LOCK" ? "Date lock" : "Payment"}</p><p className="mt-1 text-sm text-stone-500">{new Date(payment.createdAt).toLocaleString()}</p></div><p className="font-semibold">{money(payment.amountUnits)}</p></div><p className="mt-3 text-sm text-stone-700">{payment.state === "CONFIRMED" ? payment.indexedReceipt ? "Confirmed receipt" : "Confirmed; activity updating" : payment.state.replaceAll("_", " ").toLowerCase()}</p>{payment.kind === "STREAM" && payment.state === "CONFIRMED" && <StreamCard id={payment.id} apiOrigin={apiOrigin} userId={userId} />} {payment.kind === "DATE_LOCK" && payment.state === "CONFIRMED" && <DateLockCard id={payment.id} apiOrigin={apiOrigin} userId={userId} />}</article>)}{!loading && payments.length === 0 && <p className="text-stone-600">No payments in this thread yet.</p>}</div>
+      <div className="mt-8 space-y-3">{payments.map((payment) => <article key={payment.id} className="rounded-2xl border border-stone-200 bg-white p-5"><div className="flex items-start justify-between gap-3"><div><p className="font-semibold">{payment.direction === "INCOMING" ? "Received" : "Sent"} · {payment.kind === "STREAM" ? "Stream" : payment.kind === "DATE_LOCK" ? "Date lock" : "Payment"}</p><p className="mt-1 text-sm text-stone-500">{new Date(payment.createdAt).toLocaleString()}</p></div><p className="font-semibold">{money(payment.amountUnits)}</p></div><p className="mt-3 text-sm text-stone-700">{payment.state === "CONFIRMED" ? "Confirmed" : payment.state.replaceAll("_", " ").toLowerCase()}</p>{payment.kind === "STREAM" && payment.state === "CONFIRMED" && <StreamCard id={payment.id} apiOrigin={apiOrigin} userId={userId} />} {payment.kind === "DATE_LOCK" && payment.state === "CONFIRMED" && <DateLockCard id={payment.id} apiOrigin={apiOrigin} userId={userId} />}</article>)}{!loading && payments.length === 0 && <p className="text-stone-600">No payments in this thread yet.</p>}</div>
     </> : <>
       <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your money</p>
       <h1 className="text-4xl font-semibold tracking-tight">Activity</h1>
