@@ -11,12 +11,16 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@aurora-is-near/intents-swap-widget": "^7.24.3",
+    "@aurora-is-near/intents-swap-widget-standalone": "^7.24.3",
     "@privy-io/react-auth": "3.43.0",
+    "@wagmi/core": "^3.6.5",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "sonner": "^2.0.8",
-    "viem": "2.56.7"
+    "viem": "2.56.7",
+    "wagmi": "^3.7.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

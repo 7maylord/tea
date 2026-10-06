@@ -79,4 +79,5 @@ Best fit for TEA now:
 | Envio | Good bounty artifact but poor app runtime dependency: hosted API URL requires a paid plan for consumption. | Keep standalone `indexer/`; do not require it for backend/frontend. Redeploy on or after September 27 for judging. |
 | Privy | Already integrated for login/wallets, but sponsorship failed in current app config. | Keep auth/wallets; do not claim sponsorship. |
 | Kuru / Perpl / Nansen / Chainlink | Trading, risk, analytics or oracle oriented. | Not needed for P0 social payments. |
-| MetaMask / Aurora Intents | Potential wallet/bridging/liquidity extensions. | Optional only if core demo needs them. |
+| Aurora Intents | Wallet top-up flow into MON, USDC or AUSD on Monad. | Integrated in the frontend home screen with `NEXT_PUBLIC_AURORA_INTENTS_API_KEY`. |
+| MetaMask | Potential alternate wallet surface. | Optional only if core demo needs it. |

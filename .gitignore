@@ -1,5 +1,6 @@
 TEA.md
 TAB_SPEC.md
+/docs
 # Environment variables
 .env
 .env.local

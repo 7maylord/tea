@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
+import AuroraTopUp from "./aurora-top-up";
 
 type Session = {
   id: string;
@@ -232,6 +233,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
               </div>
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
+              <AuroraTopUp address={session.account.address} />
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
             {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onSettled={refreshAfterPayment} />}

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "@aurora-is-near/intents-swap-widget/styles.css";
 import Pwa from "./pwa";
 
 export const metadata: Metadata = {
