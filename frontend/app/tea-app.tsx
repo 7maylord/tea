@@ -7,10 +7,10 @@ import {
   useUser,
 } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import dynamic from "next/dynamic";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
-import AuroraTopUp from "./aurora-top-up";
 
 type Session = {
   id: string;
@@ -34,6 +34,7 @@ function formatAmount(units: string, decimals: number) {
 }
 
 const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900';
+const AuroraTopUp = dynamic(() => import("./aurora-top-up"), { ssr: false });
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const online = useOnlineStatus();

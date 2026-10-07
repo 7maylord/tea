@@ -60,7 +60,7 @@ export default function AuroraTopUp({ address }: { address: string }) {
       {!apiKey && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">Aurora top-up needs NEXT_PUBLIC_AURORA_INTENTS_API_KEY.</p>}
       {open && apiKey && (
         <div className="mt-5 overflow-hidden rounded-2xl border border-stone-200">
-          <WidgetConfigProvider config={config} theme={{ colorScheme: "light", accentColor: "#ea580c", stylePreset: "simple" }}>
+          <WidgetConfigProvider config={config} theme={{ colorScheme: "light", accentColor: "#ea580c" }}>
             <Widget defaultMode="topup" />
           </WidgetConfigProvider>
         </div>
