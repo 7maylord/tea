@@ -35,6 +35,7 @@ function formatAmount(units: string, decimals: number) {
 
 const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900';
 const AuroraTopUp = dynamic(() => import("./aurora-top-up"), { ssr: false });
+const MeraWallet = dynamic(() => import("./mera-wallet"), { ssr: false });
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const online = useOnlineStatus();
@@ -250,6 +251,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
                 <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
               </div>
+              <MeraWallet userId={session.id} handle={session.handle} email={user?.email?.address} />
               {!hasPasskey && passkeysAvailable && <button type="button" disabled={!online} onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Add a passkey for easier sign-in</button>}
               <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
             </>}

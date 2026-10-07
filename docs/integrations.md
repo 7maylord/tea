@@ -80,4 +80,5 @@ Best fit for TEA now:
 | Privy | Already integrated for login/wallets, but sponsorship failed in current app config. | Keep auth/wallets; do not claim sponsorship. |
 | Kuru / Perpl / Nansen / Chainlink | Trading, risk, analytics or oracle oriented. | Not needed for P0 social payments. |
 | Aurora Intents | Wallet top-up flow into MON, USDC or AUSD on Monad. | Integrated in the frontend home screen with `NEXT_PUBLIC_AURORA_INTENTS_API_KEY`. |
+| Mera | Passkey-derived Monad EOA for recovery wallet demos. | Integrated in the frontend profile screen; stores credential metadata only. |
 | MetaMask | Potential alternate wallet surface. | Optional only if core demo needs it. |

@@ -13,7 +13,10 @@
   "dependencies": {
     "@aurora-is-near/intents-swap-widget": "^7.24.3",
     "@aurora-is-near/intents-swap-widget-standalone": "^7.24.3",
+    "@category-labs/mera": "^0.2.0",
     "@privy-io/react-auth": "3.43.0",
+    "@scure/bip32": "^2.4.0",
+    "@scure/bip39": "^2.4.0",
     "@wagmi/core": "^3.6.5",
     "next": "16.3.5",
     "react": "19.2.8",

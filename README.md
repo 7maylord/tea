@@ -170,4 +170,4 @@ pnpm check
 
 ## Hackathon sponsor fit
 
-The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA uses Aurora Intents for wallet top-ups into MON, USDC or AUSD on Monad. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact.
+The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA uses Aurora Intents for wallet top-ups into MON, USDC or AUSD on Monad, and includes a Mera passkey-derived recovery wallet demo in the profile screen. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact.
