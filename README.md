@@ -2,7 +2,7 @@
 
 > Send money like a message — even before someone joins.
 
-TEA is a mobile-first PWA for stablecoin payments on Monad testnet. Users sign in with email, get a Privy embedded wallet, pick a unique handle, and send test USD by handle or email. The app supports direct sends, email claim links, funded payment streams, date-locked payments, split requests, and private payment threads.
+TEA is a mobile-first PWA for stablecoin payments on Monad testnet. Users sign in with email, create a Mera passkey-derived payment account, pick a unique handle, and send test USD by handle or email. The app supports direct sends, email claim links, funded payment streams, date-locked payments, split requests, and private payment threads.
 
 Built for **Monad Metropolis (Consumer Products & Payments)**.
 
@@ -13,7 +13,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 
 ## Features
 
-- **Email onboarding** — Privy email OTP, embedded wallet, and immutable handle.
+- **Email onboarding** — Privy email OTP, Mera passkey payment account, and immutable handle.
 - **Direct send** — ERC-20 transfer to another TEA user with backend intent tracking and receipt verification.
 - **Send by email** — `TeaClaimEscrow` holds funds for an invited email recipient; unclaimed funds can be refunded after expiry.
 - **Streams** — `TeaStream` funds a fixed-duration stream up front; recipients collect accrued funds and senders can cancel the unaccrued remainder.
@@ -53,7 +53,7 @@ tea/
 | Backend | NestJS 11 + Express, Prisma 6, Postgres, Redis |
 | Chain client | viem 2.56.7 with JSON ABI imports |
 | Contracts | Solidity, Foundry, OpenZeppelin |
-| Identity/wallet | Privy email auth + embedded wallets |
+| Identity/wallet | Privy email auth + Mera passkey-derived payment account |
 | Indexing | Backend verifies submitted transactions through Monad RPC; optional Envio indexer is deployable for the Metropolis bounty |
 | Email | Resend |
 | Package management | pnpm, separate lockfiles per app |
@@ -121,6 +121,7 @@ NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS
 NEXT_PUBLIC_TEA_STREAM_ADDRESS
 NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS
 NEXT_PUBLIC_AURORA_INTENTS_API_KEY
+NEXT_PUBLIC_RPC_URL
 ```
 
 
@@ -170,4 +171,4 @@ pnpm check
 
 ## Hackathon sponsor fit
 
-The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA uses Aurora Intents for wallet top-ups into MON, USDC or AUSD on Monad, and includes a Mera passkey-derived recovery wallet demo in the profile screen. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact.
+The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA uses Mera as the canonical passkey-derived payment account while Privy handles email login. Aurora Intents adds wallet top-ups into MON, USDC or AUSD on Monad. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact.

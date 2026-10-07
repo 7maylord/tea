@@ -1,12 +1,12 @@
 "use client";
 
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
-import { createPublicClient, custom, formatUnits, type Hex } from "viem";
+import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { useOnlineStatus } from "./pwa";
 import { checkedStreamPlan, type StreamIntent } from "./stream-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
+import { waitForMeraReceipt } from "./mera";
 
 type Saved = { id: string; recipientAddress: string; reference: string; amountUnits: string; durationSeconds: string; submitKey: string; stage: "APPROVAL_REQUESTED" | "APPROVAL_SUBMITTED" | "READY_CREATE" | "CREATE_REQUESTED" | "CREATE_SUBMITTED"; approvalHash?: Hex; createHash?: Hex };
 type StreamDraft = { createKey: string; reference: string; amountUnits: string; durationSeconds: string };
@@ -17,8 +17,6 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   amountUnits: string; durationSeconds: string; address: string; chainId: number; token: string;
   decimals: number; symbol: string; onBack: () => void; onSettled: () => void;
 }) {
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useWallets();
   const online = useOnlineStatus();
   const [saved, setSaved] = useState<Saved | null>(null);
   const [draft, setDraft] = useState<StreamDraft | null>(null);
@@ -32,11 +30,9 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   }, [apiOrigin]);
   const save = useCallback((record: Saved) => { sessionStorage.setItem(storageKey, JSON.stringify(record)); setSaved(record); }, [storageKey]);
   const waitFor = useCallback(async (hash: Hex) => {
-    const wallet = wallets.find((item) => item.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) throw new Error("Settlement wallet unavailable.");
-    const receipt = await createPublicClient({ transport: custom(await wallet.getEthereumProvider()) }).waitForTransactionReceipt({ hash, timeout: 60_000 });
-    if (receipt.status !== "success") throw new Error("Transaction failed.");
-  }, [address, wallets]);
+    await waitForMeraReceipt(chainId, hash);
+  }, [chainId]);
+
   const reconcile = useCallback(async (record: Saved) => {
     if (!record.createHash) return;
     try {
@@ -72,7 +68,7 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
       const plan = checkedStreamPlan(stream, address, token, chainId, stream.recipient, amountUnits, durationSeconds);
       const record: Saved = { id: stream.id, recipientAddress: stream.recipient, reference, amountUnits, durationSeconds, submitKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
       save(record); sessionStorage.removeItem(draftKey); setDraft(null);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted); await waitFor(sent.hash); save({ ...submitted, stage: "READY_CREATE" });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not approve stream funding."); }
@@ -86,7 +82,7 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
       const stream = await api(`/v1/streams/${saved.id}`);
       const plan = checkedStreamPlan(stream, address, token, chainId, saved.recipientAddress, amountUnits, durationSeconds);
       save({ ...saved, stage: "CREATE_REQUESTED" });
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.create.to as Hex, data: plan.create.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.create.to as Hex, data: plan.create.data, value: BigInt(0), chainId }, address);
       const submitted = { ...saved, stage: "CREATE_SUBMITTED" as const, createHash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create the stream."); }

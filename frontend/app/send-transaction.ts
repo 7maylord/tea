@@ -1,9 +1,8 @@
 import type { Hex } from "viem";
+import { sendMeraTransaction } from "./mera";
 
 type Transaction = { to: Hex; data: Hex; value: bigint; chainId: number };
-type Options = { address: string };
-type SendTransaction = (input: Transaction, options?: Options) => Promise<{ hash: Hex }>;
 
-export async function sendWithSponsorFallback(sendTransaction: SendTransaction, input: Transaction, address: string) {
-  return sendTransaction(input, { address });
+export async function sendWithSponsorFallback(ownerId: string, input: Transaction, address: string) {
+  return sendMeraTransaction(ownerId, input, address);
 }

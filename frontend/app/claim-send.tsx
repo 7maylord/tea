@@ -1,11 +1,11 @@
 "use client";
 
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
-import { createPublicClient, custom, formatUnits, type Hex } from "viem";
+import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
+import { waitForMeraReceipt } from "./mera";
 import { useOnlineStatus } from "./pwa";
 
 type Balance = { token: string; decimals: number; symbol: string };
@@ -32,8 +32,6 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   onBack: () => void;
   onSettled: () => void;
 }) {
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useWallets();
   const online = useOnlineStatus();
   const [saved, setSaved] = useState<SavedClaim | null>(null);
   const [draft, setDraft] = useState<ClaimDraft | null>(null);
@@ -73,12 +71,8 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   }, [amountUnits, draftKey, email, storageKey]);
 
   const waitFor = useCallback(async (hash: Hex) => {
-    const wallet = wallets.find((candidate) => candidate.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) throw new Error("Settlement wallet unavailable.");
-    const provider = await wallet.getEthereumProvider();
-    const receipt = await createPublicClient({ transport: custom(provider) }).waitForTransactionReceipt({ hash, timeout: 60_000 });
-    if (receipt.status !== "success") throw new Error("Transaction failed.");
-  }, [address, wallets]);
+    await waitForMeraReceipt(chainId, hash);
+  }, [chainId]);
 
   const reconcile = useCallback(async (record: SavedClaim) => {
     if (!record.depositHash) return;
@@ -135,7 +129,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       save(record);
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted);
       await waitFor(sent.hash);
@@ -154,7 +148,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       const claim = await auth(`/v1/claims/${saved.id}`);
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, saved.amountUnits);
       save({ ...saved, stage: "DEPOSIT_REQUESTED" });
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId }, address);
       const submitted = { ...saved, stage: "DEPOSIT_SUBMITTED" as const, depositHash: sent.hash };
       save(submitted);
       await reconcile(submitted);

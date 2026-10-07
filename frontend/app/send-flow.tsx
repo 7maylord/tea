@@ -1,6 +1,5 @@
 "use client";
 
-import { useSendTransaction } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
 import { formatUnits, parseUnits, type Hex } from "viem";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
@@ -33,7 +32,6 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   onBack: () => void;
   onSettled: () => void;
 }) {
-  const { sendTransaction } = useSendTransaction();
   const online = useOnlineStatus();
   const reconciling = useRef(false);
   const [recipient, setRecipient] = useState("");
@@ -202,7 +200,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       const record: Pending = { id: intent.id, submitKey: crypto.randomUUID(), hash: null };
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, hash: sent.hash };
       sessionStorage.setItem(storageKey, JSON.stringify(submitted));
       setPending(submitted);

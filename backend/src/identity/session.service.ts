@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
+import { getAddress, isAddress, verifyMessage } from 'viem';
 import type { LinkedAccount, User } from '@privy-io/node';
 import { createClient } from 'redis';
 import {
@@ -23,6 +24,33 @@ import {
   NORMALIZATION_VERSION,
   readIdentityKey,
 } from './identity.crypto';
+
+type SettlementProof = { accountAddress?: unknown; signature?: unknown };
+
+function settlementMessage(did: string, address: string, chainId: number) {
+  return `TEA Mera settlement account\nPrivy DID: ${did}\nAddress: ${address.toLowerCase()}\nChain ID: ${chainId}`;
+}
+
+function parseSettlementProof(
+  value: unknown,
+): { address: string; signature: `0x${string}` } | null {
+  if (!value || typeof value !== 'object') return null;
+  const proof = value as SettlementProof;
+  if (
+    typeof proof.accountAddress !== 'string' ||
+    typeof proof.signature !== 'string'
+  )
+    return null;
+  if (
+    !isAddress(proof.accountAddress) ||
+    !/^0x[0-9a-fA-F]{130}$/.test(proof.signature)
+  )
+    return null;
+  return {
+    address: getAddress(proof.accountAddress).toLowerCase(),
+    signature: proof.signature as `0x${string}`,
+  };
+}
 
 @Injectable()
 export class SessionService implements OnModuleDestroy {
@@ -118,7 +146,7 @@ export class SessionService implements OnModuleDestroy {
     }
   }
 
-  async sync(token: string | undefined) {
+  async sync(token: string | undefined, settlementProof?: unknown) {
     if (!token) throw new UnauthorizedException('Session token required');
     if (!process.env.DATABASE_URL) {
       throw new ServiceUnavailableException('Database is not configured');
@@ -139,23 +167,8 @@ export class SessionService implements OnModuleDestroy {
       (account): account is Extract<LinkedAccount, { type: 'email' }> =>
         account.type === 'email' && account.verified_at > 0,
     );
-    const wallets = providerUser.linked_accounts.filter(
-      (
-        account,
-      ): account is Extract<
-        LinkedAccount,
-        { wallet_client_type: 'privy'; chain_type: 'ethereum' }
-      > =>
-        account.type === 'wallet' &&
-        account.wallet_client_type === 'privy' &&
-        account.connector_type === 'embedded' &&
-        account.chain_type === 'ethereum' &&
-        account.verified_at > 0,
-    );
-    if (providerUser.is_guest || emails.length !== 1 || wallets.length !== 1) {
-      throw new UnprocessableEntityException(
-        'Verified email and wallet required',
-      );
+    if (providerUser.is_guest || emails.length !== 1) {
+      throw new UnprocessableEntityException('Verified email required');
     }
 
     let email: string;
@@ -163,10 +176,6 @@ export class SessionService implements OnModuleDestroy {
       email = normalizeEmail(emails[0].address);
     } catch {
       throw new UnprocessableEntityException('Invalid verified email');
-    }
-    const address = wallets[0].address.toLowerCase();
-    if (!/^0x[0-9a-f]{40}$/.test(address)) {
-      throw new UnprocessableEntityException('Invalid embedded wallet');
     }
     const chainId = Number(process.env.CHAIN_ID);
     if (
@@ -211,16 +220,35 @@ export class SessionService implements OnModuleDestroy {
       if (identity?.userId !== user.id) {
         throw new ConflictException('Verified email is already linked');
       }
+      const existing = await tx.account.findUnique({
+        where: { userId_chainId: { userId: user.id, chainId } },
+      });
+      let address = existing?.settlementAddress;
+      const proof = parseSettlementProof(settlementProof);
+      if (proof) {
+        const valid = await verifyMessage({
+          address: proof.address as `0x${string}`,
+          message: settlementMessage(providerUser.id, proof.address, chainId),
+          signature: proof.signature,
+        });
+        if (!valid)
+          throw new UnauthorizedException(
+            'Invalid settlement account signature',
+          );
+        if (address && address !== proof.address) {
+          await tx.account.update({
+            where: { userId_chainId: { userId: user.id, chainId } },
+            data: { settlementAddress: proof.address },
+          });
+        }
+        address = proof.address;
+      }
+      if (!address)
+        throw new UnprocessableEntityException('TEA passkey account required');
       await tx.account.createMany({
         data: { userId: user.id, chainId, settlementAddress: address },
         skipDuplicates: true,
       });
-      const account = await tx.account.findUnique({
-        where: { userId_chainId: { userId: user.id, chainId } },
-      });
-      if (account?.settlementAddress !== address) {
-        throw new ConflictException('Settlement wallet changed');
-      }
       return {
         id: user.id,
         handle: user.handle,
@@ -354,16 +382,7 @@ export class SessionService implements OnModuleDestroy {
           return false;
         }
       });
-    const walletStillLinked = current.linked_accounts.some(
-      (linked) =>
-        linked.type === 'wallet' &&
-        linked.wallet_client_type === 'privy' &&
-        linked.connector_type === 'embedded' &&
-        linked.chain_type === 'ethereum' &&
-        linked.verified_at > 0 &&
-        linked.address.toLowerCase() === account.settlementAddress,
-    );
-    if (current.is_guest || !emailStillLinked || !walletStillLinked) {
+    if (current.is_guest || !emailStillLinked) {
       if (kind === 'email') return { kind: 'unregistered' };
       throw new NotFoundException('Recipient not found');
     }

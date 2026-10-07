@@ -1,10 +1,11 @@
 "use client";
 
-import { useCreateWallet, usePrivy, useSignTypedData, useUser } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import { authHeaders } from "../../auth";
 import { useCallback, useEffect, useState } from "react";
 import { formatUnits, hashTypedData, type Hex } from "viem";
 import { useOnlineStatus } from "../../pwa";
+import { ensureMeraAccount, meraErrorMessage, signMeraTypedData } from "../../mera";
 
 type Invitation = {
   id: string;
@@ -27,22 +28,20 @@ type Proof = {
     message: { authorizationDigest: Hex };
   };
 };
+type Session = { id: string; account: { chainId: number; address: string } };
 
 const button = "min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900";
 
 export default function ClaimView({ token, apiOrigin, chainId }: { token: string; apiOrigin: string; chainId: number }) {
   const online = useOnlineStatus();
   const { ready, authenticated, user, login } = usePrivy();
-  const { createWallet } = useCreateWallet();
-  const { refreshUser } = useUser();
-  const { signTypedData } = useSignTypedData();
+  const [session, setSession] = useState<Session | null>(null);
   const [invitation, setInvitation] = useState<Invitation | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const wallet = user?.linkedAccounts.find((account) => account.type === "wallet" && account.chainType === "ethereum" &&
-    (account.walletClientType === "privy" || account.walletClientType === "privy-v2"));
-  const address = wallet?.type === "wallet" ? wallet.address : null;
+  const did = user?.id;
+  const address = session?.account.address ?? null;
 
   const post = useCallback(async (path: string, body: object, key?: string) => {
     const response = await fetch(`${apiOrigin}${path}`, {
@@ -54,36 +53,43 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
     return response.json() as Promise<unknown>;
   }, [apiOrigin]);
 
+  const syncMera = useCallback(async () => {
+    if (!did) return null;
+    const [headers, mera] = await Promise.all([authHeaders(), ensureMeraAccount({ ownerId: did, did, chainId, email: user?.email?.address })]);
+    const response = await fetch(`${apiOrigin}/v1/session/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify({ accountAddress: mera.address, signature: mera.signature }),
+    });
+    if (!response.ok) throw new Error("Could not prepare your passkey account.");
+    const next = await response.json() as Session;
+    setSession(next);
+    return next;
+  }, [apiOrigin, chainId, did, user?.email?.address]);
+
   const refresh = useCallback(async () => {
     try {
+      if (!session) await syncMera();
       const result = await post("/v1/claims/resolve-link", { token }) as Invitation;
       setInvitation(result);
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Invitation unavailable.");
+      setError(meraErrorMessage(cause));
     }
-  }, [post, token]);
+  }, [post, session, syncMera, token]);
 
   useEffect(() => {
-    if (!online || !ready || !authenticated || !address || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
+    if (!online || !ready || !authenticated || !did || !/^[A-Za-z0-9_-]{43}$/.test(token)) return;
     const initial = window.setTimeout(() => void refresh(), 0);
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, 10000);
     return () => { window.clearTimeout(initial); window.clearInterval(interval); };
-  }, [online, ready, authenticated, address, token, refresh]);
-
-  async function finishWallet() {
-    if (!online) { setError("Reconnect before creating your wallet."); return; }
-    setBusy(true);
-    try { await createWallet(); await refreshUser(); }
-    catch { setError("Could not create your wallet. Try again."); }
-    finally { setBusy(false); }
-  }
+  }, [online, ready, authenticated, did, token, refresh]);
 
   async function collect() {
     if (!online) { setError("Reconnect before collecting this payment."); return; }
-    if (!invitation || invitation.state !== "OPEN" || !address || busy) return;
+    if (!invitation || invitation.state !== "OPEN" || !address || busy || !did) return;
     setBusy(true);
     setError("");
     try {
@@ -101,7 +107,7 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
         hashTypedData(typed as Parameters<typeof hashTypedData>[0]) !== proof.acceptanceDigest) {
         throw new Error("Claim details changed. Try again.");
       }
-      const { signature } = await signTypedData(typed as Parameters<typeof signTypedData>[0], { address });
+      const signature = await signMeraTypedData(did, address, typed as Parameters<typeof signMeraTypedData>[2]);
       await post(`/v1/claims/${invitation.id}/submit`, {
         inviteToken: token,
         authorizationDigest: proof.authorizationDigest,
@@ -110,7 +116,7 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
       setSubmitted(true);
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not submit claim.");
+      setError(meraErrorMessage(cause));
     } finally { setBusy(false); }
   }
 
@@ -122,8 +128,8 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
       {!/^[A-Za-z0-9_-]{43}$/.test(token) ? <p className="mt-6 text-stone-600">This invitation link is invalid.</p>
         : !ready ? <p role="status" className="mt-6 text-stone-600">Checking your invitation…</p>
         : !authenticated ? <><p className="mt-4 text-stone-600">Continue with the email address that received this invitation. Details appear after verification.</p><button type="button" disabled={!online} onClick={() => login()} className={`${button} mt-8`}>Continue with email</button></>
-        : !address ? <><p className="mt-4 text-stone-600">Your wallet is needed to receive the funds.</p><button type="button" disabled={busy || !online} onClick={() => void finishWallet()} className={`${button} mt-8`}>Finish wallet setup</button></>
-        : invitation ? <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">From {invitation.payerHandle ? `@${invitation.payerHandle}` : "a TEA member"}</p><p className="mt-3 text-4xl font-semibold">{formatUnits(BigInt(invitation.amountUnits), 6)} test USD</p><p className="mt-5 text-sm text-stone-600">{invitation.state === "OPEN" ? `Claim before ${invitation.expiry ? new Date(invitation.expiry).toLocaleString() : "expiry"}. You will sign an authorization; the funds move after chain confirmation.` : invitation.state === "CLAIMED" ? "Claimed. The funds are in your wallet." : invitation.state === "REFUNDABLE" ? "This invitation has expired and the sender can request a refund." : "The sender was refunded."}</p>{invitation.state === "OPEN" && <button type="button" disabled={busy || submitted || !online} onClick={() => void collect()} className={`${button} mt-7 w-full`}>{busy ? "Submitting…" : submitted ? "Claim submitted" : "Collect money"}</button>}{submitted && invitation.state === "OPEN" && <p role="status" className="mt-4 text-sm text-stone-600">Your claim is queued. This page checks for confirmation automatically.</p>}</div>
+        : !address ? <p role="status" className="mt-6 text-stone-600">Preparing your passkey account…</p>
+        : invitation ? <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">From {invitation.payerHandle ? `@${invitation.payerHandle}` : "a TEA member"}</p><p className="mt-3 text-4xl font-semibold">{formatUnits(BigInt(invitation.amountUnits), 6)} test USD</p><p className="mt-5 text-sm text-stone-600">{invitation.state === "OPEN" ? `Claim before ${invitation.expiry ? new Date(invitation.expiry).toLocaleString() : "expiry"}. You will sign with your TEA passkey.` : invitation.state === "CLAIMED" ? "Claimed. The funds are in your wallet." : invitation.state === "REFUNDABLE" ? "This invitation has expired and the sender can request a refund." : "The sender was refunded."}</p>{invitation.state === "OPEN" && <button type="button" disabled={busy || submitted || !online} onClick={() => void collect()} className={`${button} mt-7 w-full`}>{busy ? "Submitting…" : submitted ? "Claim submitted" : "Collect money"}</button>}{submitted && invitation.state === "OPEN" && <p role="status" className="mt-4 text-sm text-stone-600">Your claim is queued. This page checks for confirmation automatically.</p>}</div>
         : <p role="status" className="mt-6 text-stone-600">Verifying your email and invitation…</p>}
       {error && <div role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error} {authenticated && address && <button type="button" disabled={!online} onClick={() => void refresh()} className="min-h-11 px-2 font-semibold underline disabled:opacity-50">Retry</button>}</div>}
     </section>

@@ -1,6 +1,5 @@
 "use client";
 
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
@@ -11,8 +10,6 @@ import { sendWithSponsorFallback } from "./send-transaction";
 type DateLockDetail = DateLockIntent & { chainState: null | { unlockAt: string; withdrawn: boolean; withdrawableUnits: string; blockNumber: string; blockTimestamp: string } };
 
 export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { id: string; apiOrigin: string; userId: string; decimals?: number }) {
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useWallets();
   const online = useOnlineStatus();
   const storageKey = `tea:date-lock-action:${userId}:${id}`;
   const [lock, setLock] = useState<DateLockDetail | null>(null);
@@ -67,18 +64,15 @@ export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { 
       const response = await fetch(`${apiOrigin}/v1/date-locks/${id}/withdraw`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": pending.prepareKey } });
       if (!response.ok) throw new Error("Nothing is available to collect yet.");
       const action = await response.json() as DateLockAction;
-      const wallet = wallets.find((item) => item.address.toLowerCase() === lock.recipient.toLowerCase());
-      if (!wallet) throw new Error("Settlement wallet unavailable.");
-      const plan = checkedDateLockAction(action, wallet.address, lock.dateUnlockContract, lock.chainId, lock.dateLockId);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: lock.chainId }, wallet.address);
+      const plan = checkedDateLockAction(action, lock.recipient, lock.dateUnlockContract, lock.chainId, lock.dateLockId);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: lock.chainId }, lock.recipient);
       const submitted = { ...pending, actionId: action.id, stage: "SUBMITTED" as const, hash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { sessionStorage.removeItem(storageKey); setSaved(null); setError(cause instanceof Error ? cause.message : "Date lock collection failed."); }
     finally { setBusy(false); }
   }
   if (!lock?.chainState) return <p role="status" className="mt-3 text-sm text-stone-600">Loading date-lock details…</p>;
-  const walletAddress = wallets.find((item) => item.address.toLowerCase() === lock.recipient.toLowerCase())?.address.toLowerCase();
   const unlocked = BigInt(lock.chainState.blockTimestamp) >= BigInt(lock.chainState.unlockAt);
-  const canCollect = walletAddress === lock.recipient.toLowerCase() && unlocked && !lock.chainState.withdrawn && BigInt(lock.chainState.withdrawableUnits) > BigInt(0);
+  const canCollect = unlocked && !lock.chainState.withdrawn && BigInt(lock.chainState.withdrawableUnits) > BigInt(0);
   return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Unlocks</p><p className="mt-1 font-semibold">{new Date(Number(lock.chainState.unlockAt) * 1000).toLocaleString()}</p></div><div><p className="text-xs text-stone-500">Available</p><p className="mt-1 font-semibold">{formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{lock.chainState.withdrawn ? "Collected" : unlocked ? "Ready to collect" : "Locked"} · checked at block {lock.chainState.blockNumber}</p><div className="mt-4">{saved?.stage === "PREPARING" ? <p role="status" className="text-sm text-stone-600">Preparing collection…</p> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" disabled={!online} onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button></div> : canCollect && <button type="button" disabled={busy || !online} onClick={() => void collect()} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</button>}</div>{error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}</div>;
 }

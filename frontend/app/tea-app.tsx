@@ -1,16 +1,13 @@
 "use client";
 
 import { authHeaders } from "./auth";
-import {
-  useCreateWallet,
-  usePrivy,
-  useUser,
-} from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
+import { copyMeraWallet, ensureMeraAccount, meraErrorMessage } from "./mera";
 
 type Session = {
   id: string;
@@ -39,9 +36,7 @@ const MeraWallet = dynamic(() => import("./mera-wallet"), { ssr: false });
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const online = useOnlineStatus();
-  const { ready, authenticated, user, login, logout, linkPasskey } = usePrivy();
-  const { createWallet } = useCreateWallet();
-  const { refreshUser } = useUser();
+  const { ready, authenticated, user, login, logout } = usePrivy();
   const [active, setActive] = useState<{ did: string; session: Session } | null>(null);
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,35 +47,30 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [notice, setNotice] = useState('');
   const [view, setView] = useState<'home' | 'send' | 'activity' | 'profile'>('home');
   const did = user?.id;
-  const passkeysAvailable = typeof window !== 'undefined' && 'PublicKeyCredential' in window;
-  const hasWallet = user?.linkedAccounts.some(
-    (account) => account.type === 'wallet' && account.chainType === 'ethereum' &&
-      (account.walletClientType === 'privy' || account.walletClientType === 'privy-v2'),
-  );
-  const hasPasskey = user?.linkedAccounts.some((account) => account.type === 'passkey');
   const session = active && active.did === did ? active.session : null;
   const visibleBalance = balance && balance.ownerId === session?.id ? balance.data : null;
   const refreshAfterPayment = useCallback(() => setBalanceVersion((value) => value + 1), []);
 
   useEffect(() => {
-    if (!online || !ready || !authenticated || !did || !hasWallet) return;
+    if (!online || !ready || !authenticated || !did) return;
     const controller = new AbortController();
-    void authHeaders()
-      .then((headers) => fetch(`${apiOrigin}/v1/session/sync`, {
+    void Promise.all([authHeaders(), ensureMeraAccount({ ownerId: did, did, chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID), email: user?.email?.address })])
+      .then(([headers, mera]) => fetch(`${apiOrigin}/v1/session/sync`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ accountAddress: mera.address, signature: mera.signature }),
         signal: controller.signal,
       }))
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not finish account setup. Try again.');
         return (await response.json()) as Session;
       })
-      .then((session) => { setActive({ did, session }); setError(''); })
+      .then((session) => { copyMeraWallet(did, session.id); setActive({ did, session }); setError(''); })
       .catch((cause) => {
-        if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not finish account setup. Try again.');
+        if (!controller.signal.aborted) setError(meraErrorMessage(cause));
       });
     return () => controller.abort();
-  }, [apiOrigin, authenticated, did, hasWallet, online, ready, retry]);
+  }, [apiOrigin, authenticated, did, online, ready, retry, user?.email?.address]);
 
   useEffect(() => {
     if (!online || view !== 'home' || !session?.handle) return;
@@ -101,19 +91,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       });
     return () => controller.abort();
   }, [apiOrigin, balanceVersion, online, session?.handle, session?.id, view]);
-
-  async function finishWallet() {
-    setBusy(true);
-    setError('');
-    try {
-      await createWallet();
-      await refreshUser();
-    } catch {
-      setError('Could not create your wallet. Try again.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function signOut() {
     setBusy(true);
@@ -197,16 +174,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             <p className="mt-6 text-lg leading-7 text-stone-600">Start with your email. Your wallet comes with you.</p>
             <button type="button" disabled={!online} onClick={() => login()} className={`${primary} mt-10`}>Continue with email</button>
           </>
-        ) : !hasWallet ? (
-          <>
-            <h1 className="text-3xl font-semibold">Finish setting up your wallet</h1>
-            <p className="mt-3 text-stone-600">You can receive money after your wallet is ready.</p>
-            <button type="button" disabled={busy || !online} onClick={() => void finishWallet()} className={`${primary} mt-8`}>{busy ? 'Setting up…' : 'Finish wallet setup'}</button>
-          </>
         ) : !session ? (
           <>
-            <h1 className="text-3xl font-semibold">Preparing your account</h1>
-            <p className="mt-3 text-stone-600">This usually takes a moment.</p>
+            <h1 className="text-3xl font-semibold">Preparing your passkey account</h1>
+            <p className="mt-3 text-stone-600">Your email gets you in. Your passkey protects every payment.</p>
             {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {error && <button type="button" onClick={() => setRetry((value) => value + 1)} className={`${primary} mt-6`}>Try again</button>}
           </>
@@ -251,8 +222,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
                 <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
               </div>
-              <MeraWallet userId={session.id} handle={session.handle} email={user?.email?.address} />
-              {!hasPasskey && passkeysAvailable && <button type="button" disabled={!online} onClick={() => linkPasskey()} className="mt-6 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Add a passkey for easier sign-in</button>}
+              <MeraWallet ownerId={did!} did={did!} chainId={session.account.chainId} handle={session.handle} email={user?.email?.address} />
               <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
             </>}
           </>

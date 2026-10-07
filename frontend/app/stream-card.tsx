@@ -1,6 +1,5 @@
 "use client";
 
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -14,8 +13,6 @@ type StreamDetail = StreamIntent & { chainState: null | {
   blockNumber: string; blockTimestamp: string;
 } };
 export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id: string; apiOrigin: string; userId: string; decimals?: number }) {
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useWallets();
   const online = useOnlineStatus();
   const storageKey = `tea:stream-action:${userId}:${id}`;
   const [stream, setStream] = useState<StreamDetail | null>(null);
@@ -95,20 +92,17 @@ export default function StreamCard({ id, apiOrigin, userId, decimals = 6 }: { id
       if (!response.ok) throw new Error(kind === "withdraw" ? "Nothing is available to collect yet." : "This stream can no longer be stopped.");
       const action = await response.json() as StreamAction;
       const expected = kind === "withdraw" ? stream.recipient : stream.sender;
-      const wallet = wallets.find((item) => item.address.toLowerCase() === expected.toLowerCase());
-      if (!wallet) throw new Error("Settlement wallet unavailable.");
-      const plan = checkedStreamAction(action, kind, wallet.address, stream.streamContract, stream.chainId, stream.streamId);
+      const plan = checkedStreamAction(action, kind, expected, stream.streamContract, stream.chainId, stream.streamId);
       const requested = { ...pending, actionId: action.id, stage: "WALLET_REQUESTED" as const };
       save(requested);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, wallet.address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: stream.chainId }, expected);
       const submitted = { ...requested, stage: "SUBMITTED" as const, hash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Stream action failed."); }
     finally { setBusy(false); }
   }
   if (!stream?.chainState || !estimate) return <p role="status" className="mt-3 text-sm text-stone-600">Loading stream details…</p>;
-  const walletAddress = wallets.find((item) => [stream.sender, stream.recipient].includes(item.address.toLowerCase()))?.address.toLowerCase();
-  const canCollect = walletAddress === stream.recipient && estimate.available > BigInt(0);
-  const canCancel = walletAddress === stream.sender && !stream.chainState.canceled && (!anchor || anchor.chainTimestamp + Math.max(0, Math.floor((clock - anchor.monotonic) / 1000)) < Number(stream.chainState.end));
+  const canCollect = estimate.available > BigInt(0);
+  const canCancel = !stream.chainState.canceled && (!anchor || anchor.chainTimestamp + Math.max(0, Math.floor((clock - anchor.monotonic) / 1000)) < Number(stream.chainState.end));
   return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Accrued estimate</p><p className="mt-1 font-semibold">{formatUnits(estimate.vested, decimals)}</p></div><div><p className="text-xs text-stone-500">Collected</p><p className="mt-1 font-semibold">{formatUnits(BigInt(stream.chainState.withdrawnUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{stream.chainState.canceled ? "Accrual stopped" : `Ends ${new Date(Number(stream.chainState.end) * 1000).toLocaleString()}`} · checked at block {stream.chainState.blockNumber}</p><div className="mt-4 flex gap-2">{saved?.stage === "PREPARING" ? <button type="button" disabled={busy || !online} onClick={() => void act(saved.kind)} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Preparing…" : "Retry action setup"}</button> : saved?.stage === "WALLET_REQUESTED" ? <div><p className="text-sm font-semibold text-amber-800">Transaction was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => { sessionStorage.removeItem(storageKey); setSaved(null); }} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Try again</button></div> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" disabled={!online} onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button></div> : <>{canCollect && <button type="button" disabled={busy || !online} onClick={() => void act("withdraw")} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(estimate.available, decimals)}</button>}{canCancel && <button type="button" disabled={busy || !online} onClick={() => void act("cancel")} className="min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Stop stream</button>}</>}</div>{error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}</div>;
 }

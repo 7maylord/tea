@@ -18,7 +18,6 @@ export default function Providers({
       config={{
         loginMethods: ['email'],
         appearance: { walletChainType: 'ethereum-only' },
-        embeddedWallets: { ethereum: { createOnLogin: 'users-without-wallets' } },
         supportedChains: [monadTestnet],
         defaultChain: monadTestnet,
       }}

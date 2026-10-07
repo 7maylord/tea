@@ -1,12 +1,12 @@
 "use client";
 
-import { useSendTransaction, useWallets } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
-import { createPublicClient, custom, formatUnits, type Hex } from "viem";
+import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { useOnlineStatus } from "./pwa";
 import { checkedDateLockPlan, type DateLockIntent } from "./date-lock-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
+import { waitForMeraReceipt } from "./mera";
 
 type Saved = { id: string; recipientAddress: string; reference: string; amountUnits: string; unlockAt: string; submitKey: string; stage: "APPROVAL_REQUESTED" | "APPROVAL_SUBMITTED" | "READY_CREATE" | "CREATE_REQUESTED" | "CREATE_SUBMITTED"; approvalHash?: Hex; createHash?: Hex };
 type Draft = { createKey: string; reference: string; amountUnits: string; unlockAt: string };
@@ -16,8 +16,6 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
   apiOrigin: string; userId: string; reference: string; recipient: string; amountUnits: string; unlockAt: string;
   address: string; chainId: number; token: string; decimals: number; symbol: string; onBack: () => void; onSettled: () => void;
 }) {
-  const { sendTransaction } = useSendTransaction();
-  const { wallets } = useWallets();
   const online = useOnlineStatus();
   const [saved, setSaved] = useState<Saved | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -31,11 +29,9 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
   }, [apiOrigin]);
   const save = useCallback((record: Saved) => { sessionStorage.setItem(storageKey, JSON.stringify(record)); setSaved(record); }, [storageKey]);
   const waitFor = useCallback(async (hash: Hex) => {
-    const wallet = wallets.find((item) => item.address.toLowerCase() === address.toLowerCase());
-    if (!wallet) throw new Error("Settlement wallet unavailable.");
-    const receipt = await createPublicClient({ transport: custom(await wallet.getEthereumProvider()) }).waitForTransactionReceipt({ hash, timeout: 60_000 });
-    if (receipt.status !== "success") throw new Error("Transaction failed.");
-  }, [address, wallets]);
+    await waitForMeraReceipt(chainId, hash);
+  }, [chainId]);
+
   const reconcile = useCallback(async (record: Saved) => {
     if (!record.createHash) return;
     try {
@@ -71,7 +67,7 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
       const plan = checkedDateLockPlan(lock, address, token, chainId, lock.recipient, amountUnits, unlockAt);
       const record: Saved = { id: lock.id, recipientAddress: lock.recipient, reference, amountUnits, unlockAt, submitKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
       save(record); sessionStorage.removeItem(draftKey); setDraft(null);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted); await waitFor(sent.hash); save({ ...submitted, stage: "READY_CREATE" });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not approve date-lock funding."); }
@@ -85,7 +81,7 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
       const lock = await api(`/v1/date-locks/${saved.id}`);
       const plan = checkedDateLockPlan(lock, address, token, chainId, saved.recipientAddress, amountUnits, unlockAt);
       save({ ...saved, stage: "CREATE_REQUESTED" });
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.create.to as Hex, data: plan.create.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.create.to as Hex, data: plan.create.data, value: BigInt(0), chainId }, address);
       const submitted = { ...saved, stage: "CREATE_SUBMITTED" as const, createHash: sent.hash };
       save(submitted); await reconcile(submitted);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create the date lock."); }

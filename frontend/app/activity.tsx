@@ -1,6 +1,5 @@
 "use client";
 
-import { useSendTransaction } from "@privy-io/react-auth";
 import { authHeaders } from "./auth";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -27,7 +26,6 @@ function money(units: string) {
 }
 
 export default function Activity({ apiOrigin, userId, address, chainId, balance, onSettled }: { apiOrigin: string; userId: string; address: string; chainId: number; balance: Balance | null; onSettled: () => void }) {
-  const { sendTransaction } = useSendTransaction();
   const online = useOnlineStatus();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -109,7 +107,7 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
       if (!prepared.ok) throw new Error(prepared.status === 422 ? "Not enough available funds." : "Could not prepare this split payment.");
       const intent = await prepared.json() as PaymentIntent;
       const plan = checkedTransferPlan(intent, address, balance.token, chainId, obligation.amountUnits);
-      const sent = await sendWithSponsorFallback(sendTransaction, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, address);
+      const sent = await sendWithSponsorFallback(userId, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId }, address);
       const submitted = await fetch(`${apiOrigin}/v1/payments/${intent.id}/submission`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ txHash: sent.hash }) });
       if (!submitted.ok) throw new Error("Payment was sent, but confirmation check failed. Activity will retry.");
       const result = await submitted.json() as { state: string };
