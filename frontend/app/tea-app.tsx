@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
+import LandingPage from "./landing-page";
 import { copyMeraWallet, ensureMeraAccount, meraErrorMessage } from "./mera";
 
 type Session = {
@@ -157,6 +158,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
 
   const address = session?.account.address;
 
+  if (ready && !authenticated) return <LandingPage online={online} onLogin={() => login()} />;
+
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
       <header className="flex items-center justify-between">
@@ -167,13 +170,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       <section className="flex flex-1 flex-col justify-center py-12">
         {!ready ? (
           <p role="status" className="text-stone-600">Getting TEA ready…</p>
-        ) : !authenticated ? (
-          <>
-            <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Money, together</p>
-            <h1 className="text-5xl font-semibold leading-[1.06] tracking-tight">Send dollars like a message.</h1>
-            <p className="mt-6 text-lg leading-7 text-stone-600">Start with your email. Your wallet comes with you.</p>
-            <button type="button" disabled={!online} onClick={() => login()} className={`${primary} mt-10`}>Continue with email</button>
-          </>
         ) : !session ? (
           <>
             <h1 className="text-3xl font-semibold">Preparing your passkey account</h1>
