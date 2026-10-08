@@ -62,7 +62,21 @@ tea/
 
 Prerequisites: Node 20+, pnpm 10, Docker, Foundry, and `jq`.
 
-Start Postgres and Redis:
+Run the full app with Docker:
+
+```sh
+./scripts/docker-local.sh up --build
+```
+
+Open `http://127.0.0.1:3000`. The script creates `backend/.env` and `frontend/.env` from examples if they do not exist. Fill the Privy, email, identity and signer values before testing authenticated payment flows.
+
+Stop it with:
+
+```sh
+./scripts/docker-local.sh down
+```
+
+For DB/Redis only:
 
 ```sh
 docker compose -f infrastructure/compose.yaml up -d --wait

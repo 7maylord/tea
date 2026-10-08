@@ -1,0 +1,78 @@
+name: tea-local-app
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tea
+      POSTGRES_PASSWORD: tea_local_only
+      POSTGRES_DB: tea
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tea -d tea"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  backend:
+    build:
+      context: ../backend
+    env_file:
+      - ../backend/.env
+    environment:
+      PORT: 3001
+      DATABASE_URL: postgresql://tea:tea_local_only@postgres:5432/tea
+      REDIS_URL: redis://redis:6379
+      APP_ORIGIN: http://127.0.0.1:3000,http://localhost:3000
+      API_ORIGIN: http://127.0.0.1:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_PRIVY_APP_ID: ${NEXT_PUBLIC_PRIVY_APP_ID}
+        NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://127.0.0.1:3001}
+        NEXT_PUBLIC_CHAIN_ID: ${NEXT_PUBLIC_CHAIN_ID:-10143}
+        NEXT_PUBLIC_SETTLEMENT_TOKEN: ${NEXT_PUBLIC_SETTLEMENT_TOKEN:-0x82cE012544F85E33930C5272bdeAE76736A8F22b}
+        NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS: ${NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS:-0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814}
+        NEXT_PUBLIC_TEA_STREAM_ADDRESS: ${NEXT_PUBLIC_TEA_STREAM_ADDRESS:-0x3379CdE825960C49b456c62f6bb485902B7dA830}
+        NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS: ${NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS:-0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84}
+        NEXT_PUBLIC_AURORA_INTENTS_API_KEY: ${NEXT_PUBLIC_AURORA_INTENTS_API_KEY:-}
+        NEXT_PUBLIC_RPC_URL: ${NEXT_PUBLIC_RPC_URL:-https://testnet-rpc.monad.xyz}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  postgres_data:
+  redis_data:
