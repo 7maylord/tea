@@ -62,7 +62,7 @@ tea/
 
 Prerequisites: Node 20+, pnpm 10, Docker, Foundry, and `jq`.
 
-Run the full app with Docker:
+Run the full app with Docker. The local frontend runs in Next dev mode so Docker does not need a slow production build:
 
 ```sh
 ./scripts/docker-local.sh up --build
