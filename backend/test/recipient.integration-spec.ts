@@ -70,6 +70,16 @@ describe('recipient resolution (Postgres and Redis)', () => {
       .post('/v1/session/sync')
       .set('privy-id-token', 'sender')
       .expect(201);
+    const sender = await db.user.findUniqueOrThrow({
+      where: { privyDid: senderDid },
+    });
+    await db.account.create({
+      data: {
+        userId: sender.id,
+        chainId: 10143,
+        settlementAddress: senderAddress.toLowerCase(),
+      },
+    });
     await request(app.getHttpServer())
       .post('/v1/resolve')
       .set('privy-id-token', 'sender')
@@ -80,6 +90,20 @@ describe('recipient resolution (Postgres and Redis)', () => {
       .set('privy-id-token', 'sender')
       .send({ handle: senderHandle })
       .expect(201);
+    await request(app.getHttpServer())
+      .post('/v1/session/sync')
+      .set('privy-id-token', 'target')
+      .expect(201);
+    const target = await db.user.findUniqueOrThrow({
+      where: { privyDid: targetDid },
+    });
+    await db.account.create({
+      data: {
+        userId: target.id,
+        chainId: 10143,
+        settlementAddress: targetAddress.toLowerCase(),
+      },
+    });
     await request(app.getHttpServer())
       .post('/v1/me/handle')
       .set('privy-id-token', 'target')
@@ -182,11 +206,21 @@ describe('recipient resolution (Postgres and Redis)', () => {
       .expect(404);
 
     currentTarget = providerUser(targetDid, targetEmail, senderAddress);
-    await request(app.getHttpServer())
+    const afterPrivyWalletChange = await request(app.getHttpServer())
       .post('/v1/resolve')
       .set('privy-id-token', 'sender')
       .send({ kind: 'handle', value: handle })
-      .expect(404);
+      .expect(201);
+    expect(JSON.stringify(afterPrivyWalletChange.body)).not.toContain(
+      senderAddress,
+    );
+    references.push(
+      `tea:recipient:${createHash('sha256')
+        .update(
+          (afterPrivyWalletChange.body as { reference: string }).reference,
+        )
+        .digest('hex')}`,
+    );
     currentTarget = providerUser(targetDid, targetEmail, targetAddress);
 
     const sender = await db.user.findUniqueOrThrow({

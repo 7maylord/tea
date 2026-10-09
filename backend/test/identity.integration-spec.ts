@@ -5,6 +5,7 @@ import { PrismaClient } from '@prisma/client';
 import type { User } from '@privy-io/node';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { AppModule } from '../src/app.module';
 import { identityKey, normalizeEmail } from '../src/identity/identity.crypto';
 import { SessionService } from '../src/identity/session.service';
@@ -12,7 +13,8 @@ import { SessionService } from '../src/identity/session.service';
 const firstDid = `did:privy:${randomUUID()}`;
 const secondDid = `did:privy:${randomUUID()}`;
 const thirdDid = `did:privy:${randomUUID()}`;
-const address = `0x${randomBytes(20).toString('hex')}`;
+const settlementAccount = privateKeyToAccount(generatePrivateKey());
+const address = settlementAccount.address;
 const otherAddress = `0x${randomBytes(20).toString('hex')}`;
 const thirdAddress = `0x${randomBytes(20).toString('hex')}`;
 const firstEmail = `${randomUUID()}@example.com`;
@@ -81,10 +83,19 @@ describe('session identity sync (Postgres)', () => {
   it('syncs only provider-verified data and preserves one settlement account', async () => {
     await request(app.getHttpServer()).post('/v1/session/sync').expect(401);
 
-    const first = await request(app.getHttpServer())
+    const profile = await request(app.getHttpServer())
       .post('/v1/session/sync')
       .set('privy-id-token', 'verified-test-token')
       .send({ email: 'attacker@example.com', address: otherAddress })
+      .expect(201);
+    expect(profile.body.account).toBeNull();
+    const signature = await settlementAccount.signMessage({
+      message: `TEA Mera settlement account\nPrivy DID: ${firstDid}\nAddress: ${address.toLowerCase()}\nChain ID: 10143`,
+    });
+    const first = await request(app.getHttpServer())
+      .post('/v1/session/sync')
+      .set('privy-id-token', 'verified-test-token')
+      .send({ accountAddress: address, signature })
       .expect(201);
     const repeat = await request(app.getHttpServer())
       .post('/v1/session/sync')
@@ -95,7 +106,7 @@ describe('session identity sync (Postgres)', () => {
       account: { address: string };
     };
     expect(repeat.body).toEqual(firstBody);
-    expect(firstBody.account.address).toBe(address);
+    expect(firstBody.account.address).toBe(address.toLowerCase());
     expect(await db.account.count({ where: { userId: firstBody.id } })).toBe(1);
     expect(await db.identity.count({ where: { userId: firstBody.id } })).toBe(
       1,
@@ -126,11 +137,11 @@ describe('session identity sync (Postgres)', () => {
     await request(app.getHttpServer())
       .post('/v1/session/sync')
       .set('privy-id-token', 'verified-test-token')
-      .expect(409);
+      .expect(201);
     expect(
       (await db.account.findFirstOrThrow({ where: { userId: firstBody.id } }))
         .settlementAddress,
-    ).toBe(address);
+    ).toBe(address.toLowerCase());
 
     verified.mockResolvedValue(
       providerUser(secondDid, secondEmail, otherAddress),
@@ -176,6 +187,20 @@ describe('session identity sync (Postgres)', () => {
       providerUser(secondDid, firstEmail, otherAddress),
     );
     await request(app.getHttpServer())
+      .post('/v1/session/sync')
+      .set('privy-id-token', 'verified-test-token')
+      .expect(201);
+    const second = await db.user.findUniqueOrThrow({
+      where: { privyDid: secondDid },
+    });
+    await db.account.create({
+      data: {
+        userId: second.id,
+        chainId: 10143,
+        settlementAddress: otherAddress.toLowerCase(),
+      },
+    });
+    await request(app.getHttpServer())
       .post('/v1/me/handle')
       .set('privy-id-token', 'verified-test-token')
       .send({ handle })
@@ -191,6 +216,28 @@ describe('session identity sync (Postgres)', () => {
           : providerUser(secondDid, firstEmail, otherAddress),
       ),
     );
+    await request(app.getHttpServer())
+      .post('/v1/session/sync')
+      .set('privy-id-token', 'second')
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/v1/session/sync')
+      .set('privy-id-token', 'third')
+      .expect(201);
+    const users = await db.user.findMany({
+      where: { privyDid: { in: [secondDid, thirdDid] } },
+    });
+    await db.account.createMany({
+      data: users.map((user) => ({
+        userId: user.id,
+        chainId: 10143,
+        settlementAddress:
+          user.privyDid === secondDid
+            ? otherAddress.toLowerCase()
+            : thirdAddress.toLowerCase(),
+      })),
+      skipDuplicates: true,
+    });
     const responses = await Promise.all(
       ['second', 'third'].map((token) =>
         request(app.getHttpServer())

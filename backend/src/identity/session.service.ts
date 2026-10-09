@@ -26,6 +26,14 @@ import {
 } from './identity.crypto';
 
 type SettlementProof = { accountAddress?: unknown; signature?: unknown };
+type Session = {
+  id: string;
+  handle: string | null;
+  account: { chainId: number; address: string } | null;
+};
+type SessionWithAccount = Session & {
+  account: NonNullable<Session['account']>;
+};
 
 function settlementMessage(did: string, address: string, chainId: number) {
   return `TEA Mera settlement account\nPrivy DID: ${did}\nAddress: ${address.toLowerCase()}\nChain ID: ${chainId}`;
@@ -146,7 +154,21 @@ export class SessionService implements OnModuleDestroy {
     }
   }
 
-  async sync(token: string | undefined, settlementProof?: unknown) {
+  async sync(
+    token: string | undefined,
+    settlementProof?: unknown,
+    requireAccount?: true,
+  ): Promise<SessionWithAccount>;
+  async sync(
+    token: string | undefined,
+    settlementProof: unknown,
+    requireAccount: false,
+  ): Promise<Session>;
+  async sync(
+    token: string | undefined,
+    settlementProof?: unknown,
+    requireAccount = true,
+  ): Promise<Session> {
     if (!token) throw new UnauthorizedException('Session token required');
     if (!process.env.DATABASE_URL) {
       throw new ServiceUnavailableException('Database is not configured');
@@ -190,7 +212,7 @@ export class SessionService implements OnModuleDestroy {
     const encryptedValue = Uint8Array.from(
       encryptIdentity(email, encryptionSecret),
     );
-    return this.db.$transaction(async (tx) => {
+    const session = await this.db.$transaction(async (tx): Promise<Session> => {
       const user = await tx.user.upsert({
         where: { privyDid: providerUser.id },
         create: { privyDid: providerUser.id },
@@ -243,18 +265,24 @@ export class SessionService implements OnModuleDestroy {
         }
         address = proof.address;
       }
-      if (!address)
+      if (!address && requireAccount)
         throw new UnprocessableEntityException('TEA passkey account required');
-      await tx.account.createMany({
-        data: { userId: user.id, chainId, settlementAddress: address },
-        skipDuplicates: true,
-      });
+      if (address) {
+        await tx.account.createMany({
+          data: { userId: user.id, chainId, settlementAddress: address },
+          skipDuplicates: true,
+        });
+      }
       return {
         id: user.id,
         handle: user.handle,
-        account: { chainId, address },
+        account: address ? { chainId, address } : null,
       };
     });
+    if (requireAccount && !session.account) {
+      throw new UnprocessableEntityException('TEA passkey account required');
+    }
+    return session;
   }
 
   async reserveHandle(token: string | undefined, value: unknown) {

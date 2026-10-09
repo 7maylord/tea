@@ -10,6 +10,6 @@ export class SessionController {
     @Headers('privy-id-token') token: string | undefined,
     @Body() body: unknown,
   ) {
-    return this.sessions.sync(token, body);
+    return this.sessions.sync(token, body, false);
   }
 }
