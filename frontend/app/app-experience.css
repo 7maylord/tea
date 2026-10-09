@@ -1,0 +1,45 @@
+.tea-workspace { --ink: #163c2c; width: min(100% - 40px, 760px); margin: auto; min-height: 100dvh; padding: max(28px, env(safe-area-inset-top)) 0 max(24px, env(safe-area-inset-bottom)); color: var(--ink); display: flex; flex-direction: column; }
+.tea-workspace-header { display: flex; align-items: center; gap: 20px; padding-bottom: 22px; border-bottom: 1px solid #163c2c24; }
+.tea-wordmark { font-size: 42px; font-weight: 700; letter-spacing: -4px; line-height: 1; }
+.tea-wordmark > span { color: #6d883c; }
+.tea-network { margin-left: auto; display: flex; gap: 7px; align-items: center; font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
+.tea-network > span { width: 6px; height: 6px; border-radius: 100%; background: #658d53; box-shadow: 0 0 0 4px #658d5315; }
+.tea-workspace-content { flex: 1; display: flex; flex-direction: column; padding: 42px 0; }
+.tea-workspace--setup { max-width: 480px; }
+.tea-workspace--setup .tea-workspace-content { justify-content: center; }
+.tea-workspace h1, .tea-page-title { font-family: Georgia, 'Times New Roman', serif; font-weight: 400; letter-spacing: -.055em; line-height: 1.05; }
+.tea-page-title { font-size: clamp(40px, 6vw, 64px); overflow-wrap: anywhere; }
+.tea-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; margin-bottom: 15px; }
+.tea-page-intro { font-size: 14px; color: #667064; margin-top: 14px; line-height: 1.7; }
+.tea-balance { position: relative; isolation: isolate; overflow: hidden; background: #163c2c; color: #f6f2e9; padding: clamp(24px, 5vw, 40px); border-radius: 26px; margin-top: 30px; box-shadow: 0 20px 45px -30px #163c2c99; }
+.tea-balance::before { content: ''; z-index: -1; pointer-events: none; position: absolute; inset: 0; background: radial-gradient(350px circle at var(--light-x, 70%) var(--light-y, 20%), #dfff8021, transparent); }
+.tea-balance-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; }
+.tea-balance-top .tea-eyebrow { margin: 0; color: #e2edda; }
+.tea-wallet-mark { font-size: 24px; color: #dfff80; }
+.tea-balance-label { color: #c6d4c5; font-size: 12px; }
+.tea-balance-amount { font-size: clamp(28px, 5vw, 44px); letter-spacing: -.055em; line-height: 1.25; font-weight: 500; margin-top: 10px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.tea-balance-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
+.tea-balance-actions button { border-radius: 100px; font-size: 11px; }
+.tea-balance-actions button:last-child { background: #dfff80; color: #163c2c; }
+.tea-balance-rings { position: absolute; z-index: -1; right: -75px; top: -60px; width: 340px; height: 340px; opacity: .4; pointer-events: none; }
+.tea-balance-rings i { position: absolute; inset: 0; border: 1px solid #dfff8050; border-radius: 50%; }
+.tea-balance-rings i:nth-child(2) { inset: 35px; }
+.tea-balance-rings i:nth-child(3) { inset: 70px; }
+.tea-send-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; padding: 20px 24px; border: 1px solid #163c2c25; border-radius: 22px; background: #e9eddf; text-align: left; font-size: 22px; font-family: Georgia, 'Times New Roman', serif; }
+.tea-action-label { display: block; font-family: Arial, sans-serif; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: #56664b; margin-bottom: 4px; }
+.tea-action-arrow { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--ink); color: #dfff80; transition: transform .2s; }
+.tea-send-action:hover .tea-action-arrow { transform: rotate(45deg); }
+.tea-profile-card { position: relative; border: 1px solid #163c2c24; border-radius: 24px; background: #fffdf7; padding: 30px; margin-top: 30px; }
+.tea-profile-avatar { display: grid; place-items: center; width: 66px; height: 66px; border-radius: 50% 50% 50% 12px; background: #dfff80; color: var(--ink); font-family: Georgia, serif; font-size: 24px; margin-bottom: 26px; }
+.tea-app-nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; position: sticky; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 20; padding: 7px; border: 1px solid #163c2c24; border-radius: 22px; background: #fffdf7f5; box-shadow: 0 12px 34px #163c2c12; backdrop-filter: blur(16px); }
+.tea-app-nav button { display: flex; align-items: center; justify-content: center; gap: 9px; border-radius: 16px; font-size: 12px; }
+.tea-app-nav button[aria-current] { background: var(--ink); color: #dfff80; }
+.tea-app-nav svg { width: 18px; height: 18px; }
+.tea-workspace button, .tea-workspace input { transition: background-color .2s, border-color .2s, box-shadow .2s; }
+.tea-workspace button:not(:disabled) { cursor: pointer; }
+.tea-workspace button:focus-visible { outline: 2px solid #749637; outline-offset: 4px; }
+.tea-workspace-content > section { border-color: #163c2c24; }
+.tea-workspace--send, .tea-workspace--activity { max-width: 640px; }
+@media (min-width: 900px) { .tea-workspace { padding-top: 40px; } .tea-workspace-content { padding-top: 52px; } .tea-app-nav { align-self: center; width: 420px; } }
+@media (max-width: 430px) { .tea-network { font-size: 9px; } .tea-workspace-header { gap: 10px; } .tea-workspace-content { padding-top: 30px; } }
+@media (prefers-reduced-motion: reduce) { .tea-workspace *, .tea-workspace *::before { transition: none !important; animation: none !important; } }

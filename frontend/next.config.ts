@@ -1,6 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  webpack: (config) => {
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      { module: /ox\/_esm\/tempo\/internal\/virtualMasterPool/, message: /Critical dependency/ },
+    ];
+    config.resolve.alias["@farcaster/mini-app-solana"] = false;
+    return config;
+  },
   async headers() {
     return [
       {

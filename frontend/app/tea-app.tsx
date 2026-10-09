@@ -1,20 +1,24 @@
 "use client";
 
+import "./app-experience.css";
+
 import { authHeaders } from "./auth";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
-import LandingPage from "./landing-page";
 import { copyMeraWallet, ensureMeraAccount, meraErrorMessage } from "./mera";
 
-type Session = {
+type Account = { chainId: number; address: string };
+type SessionResponse = {
   id: string;
   handle: string | null;
-  account: { chainId: number; address: string };
+  account: Account | null;
 };
+type Session = Omit<SessionResponse, 'account'> & { account: Account };
 type Balance = {
   token: string;
   symbol: string;
@@ -37,7 +41,7 @@ const MeraWallet = dynamic(() => import("./mera-wallet"), { ssr: false });
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const online = useOnlineStatus();
-  const { ready, authenticated, user, login, logout } = usePrivy();
+  const { ready, authenticated, user, logout } = usePrivy();
   const [active, setActive] = useState<{ did: string; session: Session } | null>(null);
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
@@ -56,18 +60,40 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   useEffect(() => {
     if (!online || !ready || !authenticated || !did) return;
     const controller = new AbortController();
-    void Promise.all([authHeaders(), ensureMeraAccount({ ownerId: did, did, chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID), email: user?.email?.address })])
-      .then(([headers, mera]) => fetch(`${apiOrigin}/v1/session/sync`, {
+    void authHeaders()
+      .then((headers) => fetch(`${apiOrigin}/v1/session/sync`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ accountAddress: mera.address, signature: mera.signature }),
+        headers,
         signal: controller.signal,
       }))
       .then(async (response) => {
         if (!response.ok) throw new Error('Could not finish account setup. Try again.');
-        return (await response.json()) as Session;
+        return (await response.json()) as SessionResponse;
       })
-      .then((session) => { copyMeraWallet(did, session.id); setActive({ did, session }); setError(''); })
+      .then(async (session) => {
+        if (session.account) return session;
+        const mera = await ensureMeraAccount({
+          ownerId: did,
+          did,
+          chainId: Number(process.env.NEXT_PUBLIC_CHAIN_ID),
+          email: user?.email?.address,
+          handle: session.handle,
+        });
+        const response = await fetch(`${apiOrigin}/v1/session/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...await authHeaders() },
+          body: JSON.stringify({ accountAddress: mera.address, signature: mera.signature }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('Could not create your payment account. Try again.');
+        return (await response.json()) as SessionResponse;
+      })
+      .then((session) => {
+        if (!session.account) throw new Error('Could not create your payment account. Try again.');
+        copyMeraWallet(did, session.id);
+        setActive({ did, session: { ...session, account: session.account } });
+        setError('');
+      })
       .catch((cause) => {
         if (!controller.signal.aborted) setError(meraErrorMessage(cause));
       });
@@ -75,7 +101,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   }, [apiOrigin, authenticated, did, online, ready, retry, user?.email?.address]);
 
   useEffect(() => {
-    if (!online || view !== 'home' || !session?.handle) return;
+    if (!online || view !== 'home' || !session?.handle || !session.account) return;
     const controller = new AbortController();
     void authHeaders()
       .then((headers) => fetch(`${apiOrigin}/v1/balance`, {
@@ -92,7 +118,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
       });
     return () => controller.abort();
-  }, [apiOrigin, balanceVersion, online, session?.handle, session?.id, view]);
+  }, [apiOrigin, balanceVersion, online, session?.account, session?.handle, session?.id, view]);
 
   async function signOut() {
     setBusy(true);
@@ -155,7 +181,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     }
   }
 
-
   async function claimFaucet() {
     setFaucetBusy(true);
     setError('');
@@ -178,22 +203,23 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
 
   const address = session?.account.address;
 
-  if (ready && !authenticated) return <LandingPage online={online} onLogin={() => login()} />;
+  if (ready && !authenticated) return <main className="tea-workspace tea-workspace--setup"><section className="tea-workspace-content"><h1 className="tea-page-title">Your session ended.</h1><p className="tea-page-intro">Return home to sign in again.</p><Link href="/" className={`${primary} mt-6 inline-flex items-center justify-center`}>Go to TEA</Link></section></main>;
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-md flex-col px-5 pb-[max(24px,env(safe-area-inset-bottom))] pt-[max(28px,env(safe-area-inset-top))]">
-      <header className="flex items-center justify-between">
-        <span className="text-3xl font-semibold tracking-tight">tea.</span>
+    <main className={`tea-workspace tea-workspace--${session?.handle ? view : "setup"}`}>
+      <header className="tea-workspace-header">
+        <Link href="/" className="tea-wordmark" aria-label="Go to TEA homepage">tea<span>.</span></Link>
+        <span className="tea-network"><span aria-hidden="true" />Monad testnet</span>
         {ready && authenticated && !session?.handle && <button type="button" disabled={busy} onClick={() => void signOut()} className="min-h-11 rounded-full px-3 text-sm font-medium text-stone-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>}
       </header>
 
-      <section className="flex flex-1 flex-col justify-center py-12">
+      <section className="tea-workspace-content">
         {!ready ? (
           <p role="status" className="text-stone-600">Getting TEA ready…</p>
         ) : !session ? (
           <>
-            <h1 className="text-3xl font-semibold">Preparing your passkey account</h1>
-            <p className="mt-3 text-stone-600">Your email gets you in. Your passkey protects every payment.</p>
+            <h1 className="text-3xl font-semibold">Preparing your TEA account</h1>
+            <p className="mt-3 text-stone-600">Returning users go straight in. On your first visit, your passkey creates your payment wallet.</p>
             {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {error && <button type="button" onClick={() => setRetry((value) => value + 1)} className={`${primary} mt-6`}>Try again</button>}
           </>
@@ -214,26 +240,36 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         ) : (
           <>
             {view === 'home' && <>
-              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Account ready</p>
-              <h1 className="text-4xl font-semibold tracking-tight">Hello, {session.handle}.</h1>
-              <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
-                <p className="text-sm text-stone-300">Onchain balance</p>
-                <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
-                <div className="mt-4 flex flex-wrap gap-3">
+              <p className="tea-eyebrow">Your everyday, all together</p>
+              <h1 className="tea-page-title">Hello, {session.handle}.</h1>
+              <p className="tea-page-intro">A little more flow. A little less friction.</p>
+              <div className="tea-balance" onPointerMove={(event) => {
+                if (event.pointerType !== 'mouse' || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+                const bounds = event.currentTarget.getBoundingClientRect();
+                event.currentTarget.style.setProperty('--light-x', `${event.clientX - bounds.left}px`);
+                event.currentTarget.style.setProperty('--light-y', `${event.clientY - bounds.top}px`);
+              }}>
+                <div className="tea-balance-rings" aria-hidden="true"><i /><i /><i /></div>
+                <div className="tea-balance-top"><span className="tea-eyebrow">TEA wallet</span><span className="tea-wallet-mark" aria-hidden="true">↗</span></div>
+                <p className="tea-balance-label">Available balance</p>
+                <p className="tea-balance-amount">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
+                <div className="tea-balance-actions">
                   <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
                   <button type="button" disabled={faucetBusy || !online} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : 'Claim 10,000 TUSD'}</button>
                 </div>
               </div>
-              <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
+              <button type="button" onClick={() => setView('send')} className="tea-send-action"><span><span className="tea-action-label">Make someone’s day</span>Send money</span><span className="tea-action-arrow" aria-hidden="true">↗</span></button>
               <AuroraTopUp address={session.account.address} />
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
             {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onSettled={refreshAfterPayment} />}
             {view === 'profile' && <>
-              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-orange-700">Your account</p>
-              <h1 className="text-4xl font-semibold tracking-tight">Profile</h1>
-              <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5">
-                <p className="text-sm text-stone-500">TEA name</p>
+              <p className="tea-eyebrow">Personally yours</p>
+              <h1 className="tea-page-title">Your little corner.</h1>
+              <p className="tea-page-intro">Your identity, your wallet, your keys.</p>
+              <div className="tea-profile-card">
+                <div className="tea-profile-avatar" aria-hidden="true">{session.handle.slice(0, 2).toUpperCase()}</div>
+                <p className="tea-eyebrow">TEA name</p>
                 <p className="mt-1 font-semibold">@{session.handle}</p>
                 <p className="mt-5 text-sm text-stone-500">Verified email</p>
                 <p className="mt-1 break-all font-medium">{user?.email?.address ?? 'Unavailable'}</p>
@@ -241,7 +277,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
                 <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
               </div>
-              <MeraWallet ownerId={did!} did={did!} chainId={session.account.chainId} handle={session.handle} email={user?.email?.address} />
+              <MeraWallet ownerId={session.id} did={did!} chainId={session.account.chainId} handle={session.handle} email={user?.email?.address} />
               <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
             </>}
           </>
@@ -249,8 +285,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
         {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
-      {session?.handle && view !== 'send' && <nav aria-label="Main" className="sticky bottom-0 -mx-5 grid grid-cols-3 gap-2 border-t border-stone-200 bg-[#f6f2e9] px-5 py-2">
-        {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}>{item}</button>)}
+      {session?.handle && view !== 'send' && <nav aria-label="Main" className="tea-app-nav">
+        {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={item === 'home' ? 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z' : item === 'activity' ? 'M3 12h4l3-8 4 16 3-8h4' : 'M5 21v-2a7 7 0 0 1 14 0v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'} /></svg>{item}</button>)}
       </nav>}
     </main>
   );

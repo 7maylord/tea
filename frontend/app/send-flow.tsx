@@ -21,7 +21,7 @@ type Review =
   | { kind: "date"; reference: string; recipient: string; amountUnits: string; unlockAt: string };
 type DirectDraft = Extract<Review, { kind: "direct" }> & { createKey: string };
 
-const button = "min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900";
+const button = "min-h-14 rounded-2xl bg-[#173e32] px-6 font-semibold text-white transition-colors hover:bg-[#235643] disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#173e32]";
 
 export default function SendFlow({ apiOrigin, userId, address, chainId, balance, onBack, onSettled }: {
   apiOrigin: string;
@@ -216,12 +216,46 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
 
   return <>
     {review?.kind === "claim" ? <ClaimSend apiOrigin={apiOrigin} userId={userId} email={review.email} amountUnits={review.amountUnits} address={address} chainId={chainId} balance={balance!} onBack={clearReview} onSettled={settled} /> : review?.kind === "stream" ? <StreamSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} durationSeconds={review.durationSeconds} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : review?.kind === "date" ? <DateLockSend apiOrigin={apiOrigin} userId={userId} reference={review.reference} recipient={review.recipient} amountUnits={review.amountUnits} unlockAt={review.unlockAt} address={address} chainId={chainId} token={balance!.token} decimals={balance!.decimals} symbol={balance!.symbol} onBack={clearReview} onSettled={settled} /> : <>
-    <button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← Back</button>
-    <h1 className="text-4xl font-semibold tracking-tight">Send money</h1>
-    {!review && <fieldset className="mt-8"><legend className="font-medium">When</legend><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{([['now', 'Send now'], ['stream', 'Over time'], ['date', 'Unlock later'], ['split', 'Split']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`min-h-12 rounded-xl border px-3 font-semibold ${mode === value ? "border-stone-900 bg-stone-900 text-white" : "border-stone-300 bg-white"}`}>{label}</button>)}</div></fieldset>}
+    <button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-[#39634c]">← Back to your space</button>
+    <p className="mb-3 text-xs font-semibold uppercase tracking-[0.2em] text-[#39634c]">Made for your everyday</p>
+    <h1 className="font-serif text-5xl tracking-tight text-[#173e32]">Money, your way.</h1>
+    <p className="mt-3 max-w-md text-sm leading-6 text-stone-600">A little for a friend. A plan for the future. Choose how your money moves.</p>
+    {!review && <fieldset className="mt-8">
+      <legend className="text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">01 / Choose a payment</legend>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {([
+          ['now', 'Send now', 'Straight to someone', '↗'],
+          ['stream', 'Over time', 'A little every second', '≈'],
+          ['date', 'Unlock later', 'For a date that matters', '◷'],
+          ['split', 'Split', 'Share the bill your way', '÷'],
+        ] as const).map(([value, label, description, glyph]) => <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)} className={`group relative rounded-2xl border p-4 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#173e32] ${mode === value ? "border-[#173e32] bg-[#173e32] text-white" : "border-[#dce3d8] bg-white/70 text-[#173e32] hover:border-[#8aa68c] hover:bg-white"}`}>
+          <span aria-hidden="true" className={`mb-4 flex size-9 items-center justify-center rounded-full text-xl ${mode === value ? "bg-[#d6ed9c] text-[#173e32]" : "bg-[#eef2e7]"}`}>{glyph}</span>
+          <span className="block font-semibold">{label}</span>
+          <span className={`mt-1 block text-xs leading-5 ${mode === value ? "text-white/75" : "text-stone-500"}`}>{description}</span>
+          <span aria-hidden="true" className={`absolute right-4 top-4 size-2 rounded-full ${mode === value ? "bg-[#d6ed9c]" : "bg-stone-200"}`} />
+        </button>)}
+      </div>
+    </fieldset>}
     {mode === "split" && !review ? <SplitSend apiOrigin={apiOrigin} balance={balance} onSettled={settled} />
-      : review ? <div className="mt-8 rounded-2xl border border-stone-200 bg-white p-5"><p className="text-sm text-stone-500">To</p><p className="mt-1 text-xl font-semibold">{review.recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} {balance?.symbol}</p><p className="mt-5 text-sm text-stone-600">Review the wallet confirmation before signing.</p><button type="button" disabled={busy || !online} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : draft ? "Retry setup" : "Confirm and send"}</button><button type="button" disabled={busy} onClick={clearReview} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button></div>
-      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4"><label htmlFor="recipient" className="font-medium">TEA name or email</label><input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="friend_name or friend@example.com" /><label htmlFor="amount" className="font-medium">Amount in {balance?.symbol ?? "test USD"}</label><input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" placeholder="0.00" />{mode === "stream" && <><label htmlFor="duration" className="font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}{mode === "date" && <><label htmlFor="unlock-at" className="font-medium">Unlock time</label><input id="unlock-at" type="datetime-local" value={unlockAt} onChange={(event) => setUnlockAt(event.target.value)} required className="min-h-14 rounded-2xl border border-stone-300 bg-white px-4" /></>}<p className="text-sm text-stone-600">Balance: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p><button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment"}</button></form>}
+      : review ? <div className="mt-8 overflow-hidden rounded-3xl border border-[#dce3d8] bg-white p-6">
+        <p className="mb-6 border-b border-dashed border-stone-200 pb-4 text-xs font-semibold uppercase tracking-[0.15em] text-[#39634c]">One last look</p>
+        <p className="text-sm text-stone-500">To</p><p className="mt-1 break-words text-xl font-semibold">{review.recipient}</p>
+        <p className="mt-6 text-sm text-stone-500">You&apos;re sending</p><p className="mt-1 break-words font-serif text-4xl text-[#173e32]">{formatUnits(BigInt(review.amountUnits), balance?.decimals ?? 6)} <span className="text-lg">{balance?.symbol}</span></p>
+        <p className="mt-6 border-t border-dashed border-stone-200 pt-4 text-sm leading-6 text-stone-600">Review the wallet confirmation before signing.</p>
+        <button type="button" disabled={busy || !online} onClick={() => void submit()} className={`${button} mt-6 w-full`}>{busy ? "Sending…" : draft ? "Retry setup" : "Confirm and send"}</button>
+        <button type="button" disabled={busy} onClick={clearReview} className="mt-3 min-h-11 w-full text-sm font-semibold">Edit payment</button>
+      </div>
+      : <form onSubmit={(event) => void continueToReview(event)} className="mt-8 flex flex-col gap-4 rounded-3xl border border-[#dce3d8] bg-white/70 p-5 sm:p-6">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">02 / The details</p>
+        <label htmlFor="recipient" className="text-sm font-medium">TEA name or email</label>
+        <input id="recipient" autoCapitalize="none" autoComplete="off" spellCheck={false} value={recipient} onChange={(event) => setRecipient(event.target.value)} required className="min-h-14 min-w-0 rounded-2xl border border-[#dce3d8] bg-white px-4 focus-visible:outline-2 focus-visible:outline-[#39634c]" placeholder="friend_name or friend@example.com" />
+        <label htmlFor="amount" className="mt-2 text-sm font-medium">Amount in {balance?.symbol ?? "test USD"}</label>
+        <input id="amount" inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} required className="min-h-20 min-w-0 rounded-2xl border border-[#dce3d8] bg-[#f5f6ef] px-4 font-serif text-4xl text-[#173e32] focus-visible:outline-2 focus-visible:outline-[#39634c]" placeholder="0.00" />
+        {mode === "stream" && <><label htmlFor="duration" className="text-sm font-medium">Duration</label><select id="duration" value={duration} onChange={(event) => setDuration(event.target.value)} className="min-h-14 rounded-2xl border border-[#dce3d8] bg-white px-4"><option value="3600">1 hour</option><option value="86400">1 day</option><option value="604800">7 days</option><option value="2592000">30 days</option></select></>}
+        {mode === "date" && <><label htmlFor="unlock-at" className="text-sm font-medium">Unlock time</label><input id="unlock-at" type="datetime-local" value={unlockAt} onChange={(event) => setUnlockAt(event.target.value)} required className="min-h-14 min-w-0 rounded-2xl border border-[#dce3d8] bg-white px-4" /></>}
+        <p className="text-xs leading-5 text-stone-500">Available: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p>
+        <button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment →"}</button>
+      </form>}
     {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     </>}
   </>;

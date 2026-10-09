@@ -3,7 +3,7 @@
 import { PrivyProvider } from "@privy-io/react-auth";
 import { Toaster } from "sonner";
 import type { ReactNode } from "react";
-import { monadTestnet } from "viem/chains";
+import { monadTestnet } from "./monad";
 
 export default function Providers({
   appId,
