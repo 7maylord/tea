@@ -20,6 +20,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 - **Date unlock** — `TeaDateUnlock` releases the full funded amount to the recipient after a chosen date.
 - **Split requests** — offchain split ledger for tracking who should pay whom.
 - **Private activity** — backend-owned threads backed by RPC-verified transaction submissions.
+- **Test faucet** — authenticated wallets can claim 10,000 TUSD once per UTC day.
 - **Mobile PWA** — responsive send, claim, stream, split, and activity flows.
 
 ## Deployed Monad testnet contracts
@@ -114,7 +115,7 @@ CLAIM_ESCROW_ADDRESS, TEA_STREAM_ADDRESS, TEA_DATE_UNLOCK_ADDRESS
 DATABASE_URL, REDIS_URL
 PRIVY_APP_ID, PRIVY_APP_SECRET
 IDENTITY_LOOKUP_HMAC_KEY, IDENTITY_ENCRYPTION_KEY
-CLAIM_IDENTITY_SIGNER_PRIVATE_KEY, RELAYER_PRIVATE_KEY
+CLAIM_IDENTITY_SIGNER_PRIVATE_KEY, RELAYER_PRIVATE_KEY, FAUCET_PRIVATE_KEY
 EMAIL_PROVIDER_KEY, EMAIL_FROM
 ```
 

@@ -20,6 +20,7 @@ model User {
   outgoingClaims   Claim[]         @relation("OutgoingClaims")
   outgoingSplits   Split[]         @relation("OutgoingSplits")
   splitObligations SplitObligation[]
+  faucetClaims     FaucetClaim[]
   lowerThreads     Thread[]        @relation("LowerThreadUser")
   upperThreads     Thread[]        @relation("UpperThreadUser")
 
@@ -260,6 +261,25 @@ model OutboxJob {
   @@map("outbox_jobs")
 }
 
+
+model FaucetClaim {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  chainId       Int
+  walletAddress String   @db.VarChar(42)
+  claimDay      DateTime @db.Date
+  amountUnits   Decimal  @db.Decimal(78, 0)
+  state         String   @db.VarChar(16)
+  txHash        String?  @db.VarChar(66)
+  blockNumber   BigInt?  @db.BigInt
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([chainId, walletAddress, claimDay])
+  @@index([userId, createdAt])
+  @@map("faucet_claims")
+}
 
 model Split {
   id               String            @id @default(uuid()) @db.Uuid

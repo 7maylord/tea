@@ -19,6 +19,8 @@ import { DateLocksController } from './date-locks/date-locks.controller';
 import { DateLocksService } from './date-locks/date-locks.service';
 import { SplitsController } from './splits/splits.controller';
 import { SplitsService } from './splits/splits.service';
+import { FaucetController } from './faucet/faucet.controller';
+import { FaucetService } from './faucet/faucet.service';
 
 @Module({
   imports: [],
@@ -35,6 +37,7 @@ import { SplitsService } from './splits/splits.service';
     StreamsController,
     DateLocksController,
     SplitsController,
+    FaucetController,
   ],
   providers: [
     AppService,
@@ -45,6 +48,7 @@ import { SplitsService } from './splits/splits.service';
     StreamsService,
     DateLocksService,
     SplitsService,
+    FaucetService,
   ],
 })
 export class AppModule {}

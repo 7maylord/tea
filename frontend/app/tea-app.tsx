@@ -41,6 +41,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [active, setActive] = useState<{ did: string; session: Session } | null>(null);
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [faucetBusy, setFaucetBusy] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
@@ -155,6 +156,25 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   }
 
 
+  async function claimFaucet() {
+    setFaucetBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await fetch(`${apiOrigin}/v1/faucet/claim`, {
+        method: 'POST',
+        headers: await authHeaders(),
+      });
+      if (response.status === 409) throw new Error('You already claimed today.');
+      if (!response.ok) throw new Error('Could not claim test funds. Try again.');
+      setNotice('10,000 TUSD claimed.');
+      setBalanceVersion((value) => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not claim test funds.');
+    } finally {
+      setFaucetBusy(false);
+    }
+  }
 
   const address = session?.account.address;
 
@@ -199,7 +219,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
               <div className="mt-8 rounded-3xl bg-stone-900 p-6 text-white">
                 <p className="text-sm text-stone-300">Onchain balance</p>
                 <p className="mt-3 break-all text-3xl font-semibold">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
-                <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="mt-4 min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
+                  <button type="button" disabled={faucetBusy || !online} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : 'Claim 10,000 TUSD'}</button>
+                </div>
               </div>
               <button type="button" onClick={() => setView('send')} className={`${primary} mt-5`}>Send money</button>
               <AuroraTopUp address={session.account.address} />
