@@ -8,18 +8,18 @@ contracts:
       - event: "Transfer(address indexed from, address indexed to, uint256 value)"
   - name: TeaStream
     events:
-      - event: "StreamCreated(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 deposit, uint64 start, uint64 end)"
-      - event: "StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount)"
-      - event: "StreamCanceled(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 recipientEntitlement, uint256 senderRefund)"
+      - event: "StreamCreated(uint256 indexed streamId, address indexed sender, address indexed recipient, address token, uint256 deposit, uint64 start, uint64 end)"
+      - event: "StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, address token, uint256 amount)"
+      - event: "StreamCanceled(uint256 indexed streamId, address indexed sender, address indexed recipient, address token, uint256 recipientEntitlement, uint256 senderRefund)"
   - name: TeaClaimEscrow
     events:
-      - event: "ClaimDeposited(bytes32 indexed claimId, address indexed payer, bytes32 indexed identityCommitment, uint256 amount, uint64 expiry)"
-      - event: "ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, uint256 amount)"
-      - event: "ClaimRefunded(bytes32 indexed claimId, address indexed payer, uint256 amount)"
+      - event: "ClaimDeposited(bytes32 indexed claimId, address indexed payer, address indexed token, bytes32 identityCommitment, uint256 amount, uint64 expiry)"
+      - event: "ClaimPaid(bytes32 indexed claimId, address indexed payer, address indexed recipient, address token, uint256 amount)"
+      - event: "ClaimRefunded(bytes32 indexed claimId, address indexed payer, address indexed token, uint256 amount)"
   - name: TeaDateUnlock
     events:
-      - event: "LockCreated(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount, uint64 unlockAt)"
-      - event: "LockWithdrawn(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount)"
+      - event: "LockCreated(uint256 indexed lockId, address indexed sender, address indexed recipient, address token, uint256 amount, uint64 unlockAt)"
+      - event: "LockWithdrawn(uint256 indexed lockId, address indexed sender, address indexed recipient, address token, uint256 amount)"
 chains:
   - id: 10143
     rpc:
@@ -27,13 +27,13 @@ chains:
       for: sync
       initial_block_interval: 100
       interval_ceiling: 100
-    start_block: 65515139
+    start_block: 70763435
     contracts:
       - name: SettlementToken
-        address: 0x82cE012544F85E33930C5272bdeAE76736A8F22b
+        address: [0x82cE012544F85E33930C5272bdeAE76736A8F22b, 0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC]
       - name: TeaStream
-        address: 0x3379CdE825960C49b456c62f6bb485902B7dA830
+        address: 0x38977cF2979F5040B5Cc660812e1faF802e15AdC
       - name: TeaClaimEscrow
-        address: 0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814
+        address: 0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA
       - name: TeaDateUnlock
-        address: 0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84
+        address: 0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9

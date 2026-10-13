@@ -28,8 +28,8 @@ const liveChainId = await client.getChainId();
 if (liveChainId !== chainId) throw new Error(`Wrong chain: expected ${chainId}, received ${liveChainId}`);
 
 const blockNumber = await client.getBlockNumber();
-const [escrowToken, identitySigner, signerEpoch, owner, paused, relayerBalance] = await Promise.all([
-  client.readContract({ address: escrow, abi: escrowAbi, functionName: 'token', blockNumber }),
+const [tokenSupported, identitySigner, signerEpoch, owner, paused, relayerBalance] = await Promise.all([
+  client.readContract({ address: escrow, abi: escrowAbi, functionName: 'supportedTokens', args: [token], blockNumber }),
   client.readContract({ address: escrow, abi: escrowAbi, functionName: 'identitySigner', blockNumber }),
   client.readContract({ address: escrow, abi: escrowAbi, functionName: 'signerEpoch', blockNumber }),
   client.readContract({ address: escrow, abi: escrowAbi, functionName: 'owner', blockNumber }),
@@ -37,9 +37,7 @@ const [escrowToken, identitySigner, signerEpoch, owner, paused, relayerBalance] 
   client.getBalance({ address: relayerAccount.address, blockNumber }),
 ]);
 
-if (escrowToken.toLowerCase() !== token.toLowerCase()) {
-  throw new Error(`Claim escrow token is ${escrowToken}, expected ${token}`);
-}
+if (!tokenSupported) throw new Error(`Claim escrow does not support ${token}`);
 if (identityAccount.address.toLowerCase() !== identitySigner.toLowerCase()) {
   throw new Error(`CLAIM_IDENTITY_SIGNER_PRIVATE_KEY resolves to ${identityAccount.address}, but escrow identitySigner is ${identitySigner}`);
 }
@@ -51,7 +49,7 @@ console.log(JSON.stringify({
   chainId: liveChainId,
   blockNumber: blockNumber.toString(),
   claimEscrow: escrow,
-  token: escrowToken,
+  token,
   owner,
   paused,
   identitySigner,

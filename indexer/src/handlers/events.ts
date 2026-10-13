@@ -22,6 +22,7 @@ function base(event: EventMeta, eventType: string): ChainEvent {
     blockTimestamp: BigInt(event.block.timestamp),
     contractAddress: event.srcAddress.toLowerCase(),
     eventType,
+    tokenAddress: undefined,
     fromAddress: undefined,
     toAddress: undefined,
     amountUnits: undefined,
@@ -44,6 +45,7 @@ indexer.onEvent(
       fromAddress: event.params.from,
       toAddress: event.params.to,
       amountUnits: event.params.value,
+      tokenAddress: event.srcAddress,
     });
   },
 );
@@ -56,6 +58,7 @@ indexer.onEvent(
       fromAddress: event.params.sender,
       toAddress: event.params.recipient,
       amountUnits: event.params.deposit,
+      tokenAddress: event.params.token,
       streamId: event.params.streamId,
       start: event.params.start,
       end: event.params.end,
@@ -71,6 +74,7 @@ indexer.onEvent(
       fromAddress: event.params.sender,
       toAddress: event.params.recipient,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       streamId: event.params.streamId,
     });
   },
@@ -84,6 +88,7 @@ indexer.onEvent(
       fromAddress: event.params.sender,
       toAddress: event.params.recipient,
       streamId: event.params.streamId,
+      tokenAddress: event.params.token,
       recipientEntitlementUnits: event.params.recipientEntitlement,
       senderRefundUnits: event.params.senderRefund,
     });
@@ -97,6 +102,7 @@ indexer.onEvent(
       ...base(event, 'CLAIM_DEPOSITED'),
       fromAddress: event.params.payer,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       claimId: event.params.claimId,
       end: event.params.expiry,
     });
@@ -111,6 +117,7 @@ indexer.onEvent(
       fromAddress: event.params.payer,
       toAddress: event.params.recipient,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       claimId: event.params.claimId,
     });
   },
@@ -124,6 +131,7 @@ indexer.onEvent(
       fromAddress: event.params.payer,
       toAddress: event.params.payer,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       claimId: event.params.claimId,
     });
   },
@@ -137,6 +145,7 @@ indexer.onEvent(
       fromAddress: event.params.sender,
       toAddress: event.params.recipient,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       lockId: event.params.lockId,
       unlockAt: event.params.unlockAt,
     });
@@ -151,6 +160,7 @@ indexer.onEvent(
       fromAddress: event.params.sender,
       toAddress: event.params.recipient,
       amountUnits: event.params.amount,
+      tokenAddress: event.params.token,
       lockId: event.params.lockId,
     });
   },

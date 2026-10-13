@@ -36,7 +36,10 @@ export async function notifyPaymentRecipient(
   )
     return false;
   const sender = intent.payer.handle ? `@${intent.payer.handle}` : 'A friend';
-  const amount = formatTeaAmount(BigInt(intent.amountUnits.toString()));
+  const amount = formatTeaAmount(
+    BigInt(intent.amountUnits.toString()),
+    intent.tokenAddress,
+  );
   const stream = intent.kind === 'STREAM';
   const detail = stream
     ? `The ${duration(intent.durationSeconds!)} stream is funded and ready to accrue.`
@@ -79,7 +82,10 @@ export async function notifySplitParticipant(
   const organizer = obligation.split.organizer.handle
     ? `@${obligation.split.organizer.handle}`
     : 'A TEA member';
-  const amount = formatTeaAmount(BigInt(obligation.amountUnits.toString()));
+  const amount = formatTeaAmount(
+    BigInt(obligation.amountUnits.toString()),
+    obligation.split.tokenAddress,
+  );
   const title = obligation.split.title ? ` for ${obligation.split.title}` : '';
   await sendTeaEmail({
     to: await verifiedEmailForUser(db, obligation.participantUserId),

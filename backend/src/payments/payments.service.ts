@@ -19,6 +19,7 @@ import {
   createPublicClient as createPublicClientBase,
   encodeFunctionData,
   http,
+  isAddress,
   parseEventLogs as parseEventLogsBase,
   TransactionNotFoundError,
   TransactionReceiptNotFoundError,
@@ -367,8 +368,11 @@ export class PaymentsService implements OnModuleDestroy {
     }
     const body = input as Record<string, unknown>;
     if (
-      Object.keys(body).sort().join(',') !== 'amountUnits,recipientReference' ||
+      Object.keys(body).sort().join(',') !==
+        'amountUnits,recipientReference,token' ||
       typeof body.recipientReference !== 'string' ||
+      typeof body.token !== 'string' ||
+      !isAddress(body.token) ||
       typeof body.amountUnits !== 'string' ||
       !/^[1-9][0-9]{0,77}$/.test(body.amountUnits)
     ) {
@@ -383,6 +387,7 @@ export class PaymentsService implements OnModuleDestroy {
         JSON.stringify({
           recipientReference: body.recipientReference,
           amountUnits: body.amountUnits,
+          token: body.token.toLowerCase(),
         }),
       )
       .digest('hex');
@@ -429,7 +434,7 @@ export class PaymentsService implements OnModuleDestroy {
             throw new ConflictException('Idempotency-Key already used');
           return replay;
         }
-        const balance = await this.funds.readBalance(payer.account);
+        const balance = await this.funds.readBalance(payer.account, body.token);
         const tokenAddress = balance.token.toLowerCase();
         const active = await tx.paymentIntent.findMany({
           where: {

@@ -11,7 +11,8 @@ contract TeaClaimEscrowScript is Script {
         address identitySigner = vm.envAddress("CLAIM_IDENTITY_SIGNER");
         address admin = vm.envAddress("CLAIM_ADMIN");
         vm.startBroadcast();
-        deployed = new TeaClaimEscrow(IERC20(settlementToken), identitySigner, admin);
+        deployed = new TeaClaimEscrow(identitySigner, admin);
+        deployed.setTokenSupported(settlementToken, true);
         vm.stopBroadcast();
     }
 }

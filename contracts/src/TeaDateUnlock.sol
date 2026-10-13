@@ -4,22 +4,24 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 /// @notice Fully funded, non-cancelable payments released at a Unix UTC timestamp.
-contract TeaDateUnlock is ReentrancyGuard {
+contract TeaDateUnlock is ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     struct Lock {
         address sender;
         address recipient;
+        address token;
         uint256 amount;
         uint64 unlockAt;
         bool withdrawn;
     }
 
-    IERC20 public immutable token;
     uint256 public nextLockId = 1;
-    uint256 public totalLiability;
+    mapping(address => bool) public supportedTokens;
+    mapping(address => uint256) public totalLiability;
     mapping(uint256 => Lock) public locks;
 
     error InvalidTerms();
@@ -30,26 +32,39 @@ contract TeaDateUnlock is ReentrancyGuard {
     error UnsupportedToken();
 
     event LockCreated(
-        uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount, uint64 unlockAt
+        uint256 indexed lockId,
+        address indexed sender,
+        address indexed recipient,
+        address token,
+        uint256 amount,
+        uint64 unlockAt
     );
-    event LockWithdrawn(uint256 indexed lockId, address indexed sender, address indexed recipient, uint256 amount);
+    event LockWithdrawn(
+        uint256 indexed lockId, address indexed sender, address indexed recipient, address token, uint256 amount
+    );
+    event TokenSupportUpdated(address indexed token, bool supported);
 
-    constructor(IERC20 settlementToken) {
-        if (address(settlementToken).code.length == 0) revert InvalidTerms();
-        token = settlementToken;
-    }
+    constructor(address initialOwner) Ownable(initialOwner) {}
 
-    function create(address recipient, uint256 amount, uint64 unlockAt) external nonReentrant returns (uint256 lockId) {
-        if (recipient == address(0) || recipient == address(this) || amount == 0 || unlockAt <= block.timestamp) {
+    function create(address settlementToken, address recipient, uint256 amount, uint64 unlockAt)
+        external
+        nonReentrant
+        returns (uint256 lockId)
+    {
+        if (
+            !supportedTokens[settlementToken] || recipient == address(0) || recipient == address(this) || amount == 0
+                || unlockAt <= block.timestamp
+        ) {
             revert InvalidTerms();
         }
+        IERC20 token = IERC20(settlementToken);
         uint256 beforeBalance = token.balanceOf(address(this));
         token.safeTransferFrom(msg.sender, address(this), amount);
         if (token.balanceOf(address(this)) != beforeBalance + amount) revert UnsupportedToken();
         lockId = nextLockId++;
-        locks[lockId] = Lock(msg.sender, recipient, amount, unlockAt, false);
-        totalLiability += amount;
-        emit LockCreated(lockId, msg.sender, recipient, amount, unlockAt);
+        locks[lockId] = Lock(msg.sender, recipient, settlementToken, amount, unlockAt, false);
+        totalLiability[settlementToken] += amount;
+        emit LockCreated(lockId, msg.sender, recipient, settlementToken, amount, unlockAt);
     }
 
     function withdrawable(uint256 lockId) public view returns (uint256) {
@@ -66,7 +81,8 @@ contract TeaDateUnlock is ReentrancyGuard {
         if (block.timestamp < funded.unlockAt) revert StillLocked();
         amount = funded.amount;
         funded.withdrawn = true;
-        totalLiability -= amount;
+        totalLiability[funded.token] -= amount;
+        IERC20 token = IERC20(funded.token);
         uint256 beforeBalance = token.balanceOf(address(this));
         uint256 beforeRecipient = token.balanceOf(funded.recipient);
         token.safeTransfer(funded.recipient, amount);
@@ -76,6 +92,12 @@ contract TeaDateUnlock is ReentrancyGuard {
         ) {
             revert UnsupportedToken();
         }
-        emit LockWithdrawn(lockId, funded.sender, funded.recipient, amount);
+        emit LockWithdrawn(lockId, funded.sender, funded.recipient, funded.token, amount);
+    }
+
+    function setTokenSupported(address settlementToken, bool supported) external onlyOwner {
+        if (settlementToken.code.length == 0 || supportedTokens[settlementToken] == supported) revert InvalidTerms();
+        supportedTokens[settlementToken] = supported;
+        emit TokenSupportUpdated(settlementToken, supported);
     }
 }

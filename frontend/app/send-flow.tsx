@@ -194,7 +194,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       const intent = await authFetch("/v1/payments", {
         method: "POST",
         headers: { "Idempotency-Key": request.createKey },
-        body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits }),
+        body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, token: balance.token }),
       }) as PaymentIntent;
       const plan = checkedTransferPlan(intent, address, balance.token, chainId, request.amountUnits);
       const record: Pending = { id: intent.id, submitKey: crypto.randomUUID(), hash: null };

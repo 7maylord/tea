@@ -14,14 +14,15 @@ contract MonadDeployTest is Test {
         // Local simulation only: this test key must never be used for a broadcast.
         vm.setEnv("DEPLOYER_PRIVATE_KEY", "11");
         vm.setEnv("SETTLEMENT_TOKEN", vm.toString(address(0)));
+        vm.setEnv("AUSD_TOKEN", vm.toString(address(0)));
         vm.setEnv("CLAIM_IDENTITY_SIGNER", vm.toString(address(0xA11CE)));
-        vm.setEnv("CLAIM_ADMIN", vm.toString(address(this)));
+        address admin = vm.addr(11);
+        vm.setEnv("CLAIM_ADMIN", vm.toString(admin));
         (TeaStream stream, TeaClaimEscrow escrow, TeaDateUnlock dateUnlock) = new MonadDeployScript().run();
-        assertEq(address(stream.token()), address(escrow.token()));
-        assertEq(address(stream.token()), address(dateUnlock.token()));
-        assertEq(TestUSD(address(stream.token())).decimals(), 6);
+        assertEq(stream.owner(), admin);
+        assertEq(dateUnlock.owner(), admin);
         assertEq(escrow.identitySigner(), address(0xA11CE));
-        assertEq(escrow.owner(), address(this));
+        assertEq(escrow.owner(), admin);
     }
 
     function testRejectsWrongNetworkBeforeReadingSecrets() public {

@@ -8,6 +8,7 @@ type ChainEvent {
   blockTimestamp: BigInt!
   contractAddress: String!
   eventType: String!
+  tokenAddress: String
   fromAddress: String
   toAddress: String
   amountUnits: BigInt

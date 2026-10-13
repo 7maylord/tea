@@ -36,19 +36,21 @@ contract TestUSDTest is Test {
     function testFundsStreamsAndExpiredClaimsWithoutFees() public {
         vm.chainId(10143);
         TestUSD token = new TestUSD();
-        TeaStream stream = new TeaStream(token);
-        TeaClaimEscrow escrow = new TeaClaimEscrow(token, address(0xA11CE), address(this));
+        TeaStream stream = new TeaStream(address(this));
+        TeaClaimEscrow escrow = new TeaClaimEscrow(address(0xA11CE), address(this));
+        stream.setTokenSupported(address(token), true);
+        escrow.setTokenSupported(address(token), true);
         token.mint(address(this), 20e6);
         token.approve(address(stream), 10e6);
         token.approve(address(escrow), 10e6);
-        uint256 id = stream.create(address(0xB0B), 10e6, 1 days);
-        escrow.deposit(bytes32(uint256(1)), bytes32(uint256(2)), 10e6);
+        uint256 id = stream.create(address(token), address(0xB0B), 10e6, 1 days);
+        escrow.deposit(bytes32(uint256(1)), bytes32(uint256(2)), address(token), 10e6);
         vm.warp(block.timestamp + 14 days);
         vm.prank(address(0xB0B));
         assertEq(stream.withdraw(id), 10e6);
         escrow.refund(bytes32(uint256(1)));
         assertEq(token.balanceOf(address(this)), 10e6);
         assertEq(token.balanceOf(address(0xB0B)), 10e6);
-        assertEq(stream.totalLiability() + escrow.totalLiability(), 0);
+        assertEq(stream.totalLiability(address(token)) + escrow.totalLiability(address(token)), 0);
     }
 }

@@ -9,7 +9,7 @@ test('validates date-lock creation and withdraw actions', () => {
   const sender='0x0000000000000000000000000000000000000001', recipient='0x0000000000000000000000000000000000000002', token='0x0000000000000000000000000000000000000003', contract='0x0000000000000000000000000000000000000004';
   const unlockAt='2026-10-10T12:00:00.000Z';
   const unlockSeconds=1791633600n;
-  const intent={id:'id',state:'AWAITING_AUTHORIZATION',chainId:10143,token,dateUnlockContract:contract,sender,recipient,amountUnits:'1000000',unlockAt,dateLockId:null,plan:{approve:{chainId:10143,from:sender,to:token,value:'0',data:encodeFunctionData({abi:tokenAbi,functionName:'approve',args:[contract,1000000n]})},create:{chainId:10143,from:sender,to:contract,value:'0',data:encodeFunctionData({abi:dateUnlockAbi,functionName:'create',args:[recipient,1000000n,unlockSeconds]})}}};
+  const intent={id:'id',state:'AWAITING_AUTHORIZATION',chainId:10143,token,dateUnlockContract:contract,sender,recipient,amountUnits:'1000000',unlockAt,dateLockId:null,plan:{approve:{chainId:10143,from:sender,to:token,value:'0',data:encodeFunctionData({abi:tokenAbi,functionName:'approve',args:[contract,1000000n]})},create:{chainId:10143,from:sender,to:contract,value:'0',data:encodeFunctionData({abi:dateUnlockAbi,functionName:'create',args:[token,recipient,1000000n,unlockSeconds]})}}};
   assert.equal(checkedDateLockPlan(intent,sender,token,10143,recipient,'1000000',unlockAt),intent.plan);
   assert.throws(()=>checkedDateLockPlan(intent,sender,token,10143,recipient,'1000000','2026-10-10T12:00:01.000Z'));
   assert.throws(()=>checkedDateLockPlan(intent,sender,token,10143,sender,'1000000',unlockAt));

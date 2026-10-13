@@ -34,10 +34,11 @@ export function checkedClaimPlan(intent: ClaimIntent, account: string, token: st
   }
   try {
     const approve = decodeFunctionData({ abi: tokenAbi, data: plan.approve.data }) as DecodedCall<"approve", readonly [string, bigint]>;
-    const deposit = decodeFunctionData({ abi: escrowAbi, data: plan.deposit.data }) as DecodedCall<"deposit", readonly [Hex, Hex, bigint]>;
+    const deposit = decodeFunctionData({ abi: escrowAbi, data: plan.deposit.data }) as DecodedCall<"deposit", readonly [Hex, Hex, string, bigint]>;
     if (approve.functionName !== "approve" || approve.args[0].toLowerCase() !== intent.escrow.toLowerCase() ||
       approve.args[1] !== BigInt(amountUnits) || deposit.functionName !== "deposit" ||
-      deposit.args[0] !== intent.id || deposit.args[2] !== BigInt(amountUnits)) throw new Error("Wrong plan");
+      deposit.args[0] !== intent.id || deposit.args[2].toLowerCase() !== token.toLowerCase() ||
+      deposit.args[3] !== BigInt(amountUnits)) throw new Error("Wrong plan");
   } catch {
     throw new Error("Claim details changed. Start again.");
   }

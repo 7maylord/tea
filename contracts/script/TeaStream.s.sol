@@ -9,7 +9,9 @@ contract TeaStreamScript is Script {
     function run() external returns (TeaStream deployed) {
         address settlementToken = vm.envAddress("SETTLEMENT_TOKEN");
         vm.startBroadcast();
-        deployed = new TeaStream(IERC20(settlementToken));
+        address admin = vm.addr(vm.envUint("DEPLOYER_PRIVATE_KEY"));
+        deployed = new TeaStream(admin);
+        deployed.setTokenSupported(settlementToken, true);
         vm.stopBroadcast();
     }
 }

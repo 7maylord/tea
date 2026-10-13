@@ -65,35 +65,30 @@ if (decimals !== env.decimals) {
   throw new Error(`Wrong decimals: expected ${env.decimals}, received ${decimals}`);
 }
 
-const [streamToken, escrowToken, dateUnlockToken] = await Promise.all([
+const support = await Promise.all([
   client.readContract({
     address: env.stream,
     abi: streamAbi,
-    functionName: 'token',
+    functionName: 'supportedTokens',
+    args: [env.token],
     blockNumber,
   }),
   client.readContract({
     address: env.escrow,
     abi: escrowAbi,
-    functionName: 'token',
+    functionName: 'supportedTokens',
+    args: [env.token],
     blockNumber,
   }),
   client.readContract({
     address: env.dateUnlock,
     abi: dateUnlockAbi,
-    functionName: 'token',
+    functionName: 'supportedTokens',
+    args: [env.token],
     blockNumber,
   }),
 ]);
-for (const [label, value] of [
-  ['TeaStream token', streamToken],
-  ['TeaClaimEscrow token', escrowToken],
-  ['TeaDateUnlock token', dateUnlockToken],
-]) {
-  if (value.toLowerCase() !== env.token.toLowerCase()) {
-    throw new Error(`${label} is ${value}, expected ${env.token}`);
-  }
-}
+if (support.some((supported) => !supported)) throw new Error('Settlement token is not supported by every TEA contract');
 
 const [tokenCodeHash, streamCodeHash, escrowCodeHash, dateUnlockCodeHash] =
   await Promise.all([
@@ -117,17 +112,17 @@ console.log(
       },
       teaStream: {
         address: env.stream,
-        token: streamToken,
+        token: env.token,
         runtimeCodeHash: streamCodeHash,
       },
       teaClaimEscrow: {
         address: env.escrow,
-        token: escrowToken,
+        token: env.token,
         runtimeCodeHash: escrowCodeHash,
       },
       teaDateUnlock: {
         address: env.dateUnlock,
-        token: dateUnlockToken,
+        token: env.token,
         runtimeCodeHash: dateUnlockCodeHash,
       },
     },

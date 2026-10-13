@@ -38,8 +38,8 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   const [draft, setDraft] = useState<ClaimDraft | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  const storageKey = `tea:claim:${userId}`;
-  const draftKey = `tea:claim-draft:${userId}`;
+  const storageKey = `tea:claim:${userId}:${balance.token}`;
+  const draftKey = `tea:claim-draft:${userId}:${balance.token}`;
 
   const auth = useCallback(async (path: string, options: RequestInit = {}) => {
     const response = await fetch(`${apiOrigin}${path}`, {
@@ -125,7 +125,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
         }
         return auth("/v1/claims", {
           method: "POST", headers: { "Idempotency-Key": request.createKey },
-          body: JSON.stringify({ recipientEmail: request.email, amountUnits: request.amountUnits }),
+          body: JSON.stringify({ recipientEmail: request.email, amountUnits: request.amountUnits, token: balance.token }),
         });
       })();
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, amountUnits);

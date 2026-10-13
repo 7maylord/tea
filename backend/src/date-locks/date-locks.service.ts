@@ -105,6 +105,7 @@ export class DateLocksService implements OnModuleDestroy {
                 abi: dateUnlockAbi,
                 functionName: 'create',
                 args: [
+                  intent.tokenAddress as Address,
                   intent.recipientAddress as Address,
                   amount,
                   this.unlockSeconds(intent),
@@ -176,8 +177,10 @@ export class DateLocksService implements OnModuleDestroy {
     const body = input as Record<string, unknown>;
     if (
       Object.keys(body).sort().join(',') !==
-        'amountUnits,recipientReference,unlockAt' ||
+        'amountUnits,recipientReference,token,unlockAt' ||
       typeof body.recipientReference !== 'string' ||
+      typeof body.token !== 'string' ||
+      !isAddress(body.token) ||
       typeof body.amountUnits !== 'string' ||
       !/^[1-9][0-9]{0,77}$/.test(body.amountUnits) ||
       BigInt(body.amountUnits) > (1n << 256n) - 1n
@@ -190,6 +193,7 @@ export class DateLocksService implements OnModuleDestroy {
         JSON.stringify({
           recipientReference: body.recipientReference,
           amountUnits: body.amountUnits,
+          token: body.token.toLowerCase(),
           unlockAt: unlockAt.toISOString(),
         }),
       )
@@ -231,19 +235,19 @@ export class DateLocksService implements OnModuleDestroy {
         'Date unlock contract is not configured',
       );
     }
-    const balance = await this.funds.readBalance(sender.account);
+    const balance = await this.funds.readBalance(sender.account, body.token);
     const client = createPublicClient({
       transport: http(process.env.RPC_URL, { timeout: 5000 }),
     });
     try {
-      const token = await client.readContract({
+      const supported = await client.readContract({
         address: dateUnlockAddress,
         abi: dateUnlockAbi,
-        functionName: 'token',
+        functionName: 'supportedTokens',
+        args: [balance.token],
         blockNumber: BigInt(balance.blockNumber),
       });
-      if (token.toLowerCase() !== balance.token.toLowerCase())
-        throw new Error('Wrong token');
+      if (!supported) throw new Error('Wrong token');
     } catch {
       throw new ServiceUnavailableException(
         'Date unlock contract is unavailable',
@@ -363,6 +367,7 @@ export class DateLocksService implements OnModuleDestroy {
         abi: dateUnlockAbi,
         functionName: 'create',
         args: [
+          intent.tokenAddress as Address,
           intent.recipientAddress as Address,
           BigInt(intent.amountUnits.toString()),
           this.unlockSeconds(intent),
@@ -407,6 +412,7 @@ export class DateLocksService implements OnModuleDestroy {
           log.address.toLowerCase() === intent.dateUnlockAddress &&
           log.args.sender?.toLowerCase() === intent.payerAddress &&
           log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+          log.args.token?.toLowerCase() === intent.tokenAddress &&
           log.args.amount === BigInt(intent.amountUnits.toString()) &&
           BigInt(log.args.unlockAt) === this.unlockSeconds(intent),
       );
@@ -477,14 +483,15 @@ export class DateLocksService implements OnModuleDestroy {
       if (
         lock[0].toLowerCase() !== intent.payerAddress ||
         lock[1].toLowerCase() !== intent.recipientAddress ||
-        lock[2] !== BigInt(intent.amountUnits.toString()) ||
-        BigInt(lock[3]) !== this.unlockSeconds(intent)
+        lock[2].toLowerCase() !== intent.tokenAddress ||
+        lock[3] !== BigInt(intent.amountUnits.toString()) ||
+        BigInt(lock[4]) !== this.unlockSeconds(intent)
       ) {
         throw new Error('Date lock state mismatch');
       }
       return {
-        unlockAt: lock[3].toString(),
-        withdrawn: lock[4],
+        unlockAt: lock[4].toString(),
+        withdrawn: lock[5],
         withdrawableUnits: withdrawable.toString(),
         blockNumber: block.number.toString(),
         blockTimestamp: block.timestamp.toString(),
@@ -720,6 +727,7 @@ export class DateLocksService implements OnModuleDestroy {
           log.args.lockId === lockId &&
           log.args.sender?.toLowerCase() === intent.payerAddress &&
           log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+          log.args.token?.toLowerCase() === intent.tokenAddress &&
           log.args.amount === BigInt(intent.amountUnits.toString()),
       );
       const transferred = event

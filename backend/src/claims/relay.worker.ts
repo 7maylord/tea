@@ -196,12 +196,13 @@ export async function processNextClaimRelay(
     });
     if (
       onchain[0].toLowerCase() !== claim.payerAddress ||
-      onchain[1] !== BigInt(claim.amountUnits.toString()) ||
-      onchain[3] !== claim.identityCommitment ||
-      onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0)
+      onchain[1].toLowerCase() !== claim.tokenAddress ||
+      onchain[2] !== BigInt(claim.amountUnits.toString()) ||
+      onchain[4] !== claim.identityCommitment ||
+      onchain[3] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0)
     )
       throw new Error('Claim state mismatch');
-    if (onchain[4] === 2) {
+    if (onchain[5] === 2) {
       const payments = await client.getLogs({
         address: claim.escrowAddress as Address,
         event: claimPaidEvent,
@@ -214,6 +215,7 @@ export async function processNextClaimRelay(
           event.args.payer?.toLowerCase() === claim.payerAddress &&
           event.args.recipient?.toLowerCase() ===
             authorization.recipientAddress &&
+          event.args.token?.toLowerCase() === claim.tokenAddress &&
           event.args.amount === BigInt(claim.amountUnits.toString()) &&
           event.transactionHash &&
           event.blockNumber !== null &&
@@ -233,7 +235,7 @@ export async function processNextClaimRelay(
       });
       return true;
     }
-    if (onchain[4] === 3) {
+    if (onchain[5] === 3) {
       await db.$transaction([
         db.claim.update({
           where: { id: claim.id },
@@ -253,7 +255,7 @@ export async function processNextClaimRelay(
       ]);
       return true;
     }
-    if (onchain[4] !== 1) throw new Error('Claim is not open');
+    if (onchain[5] !== 1) throw new Error('Claim is not open');
     if (job.txHash) {
       const receipt = await client
         .getTransactionReceipt({ hash: job.txHash as Hex })

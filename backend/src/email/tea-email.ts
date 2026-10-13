@@ -29,14 +29,24 @@ function escapeHtml(value: string) {
   );
 }
 
-export function formatTeaAmount(units: bigint) {
+export function formatTeaAmount(units: bigint, tokenAddress?: string) {
   const decimals = Number(process.env.SETTLEMENT_TOKEN_DECIMALS ?? 6);
   const base = 10n ** BigInt(decimals);
   const fraction = (units % base)
     .toString()
     .padStart(decimals, '0')
     .replace(/0+$/, '');
-  return `${units / base}${fraction ? `.${fraction}` : ''} TUSD`;
+  const ausd =
+    process.env.AUSD_TOKEN ?? '0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC';
+  const primary = process.env.SETTLEMENT_TOKEN?.toLowerCase();
+  const normalizedToken = tokenAddress?.toLowerCase();
+  const symbol =
+    normalizedToken === ausd.toLowerCase()
+      ? 'AUSD'
+      : normalizedToken === primary
+        ? (process.env.SETTLEMENT_TOKEN_SYMBOL ?? 'TUSD')
+        : 'tokens';
+  return `${units / base}${fraction ? `.${fraction}` : ''} ${symbol}`;
 }
 
 export function renderTeaEmail(message: Message) {

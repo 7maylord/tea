@@ -5,7 +5,7 @@ import { formatUnits, parseUnits } from "viem";
 import { toast } from "sonner";
 import { authHeaders } from "./auth";
 
-type Balance = { decimals: number; symbol: string };
+type Balance = { token: string; decimals: number; symbol: string };
 type Split = {
   id: string;
   title: string | null;
@@ -65,7 +65,7 @@ export default function SplitSend({ apiOrigin, balance, onSettled }: { apiOrigin
       const split = await authed("/v1/splits", {
         method: "POST",
         headers: { "Idempotency-Key": crypto.randomUUID() },
-        body: JSON.stringify({ title: title.trim() || undefined, obligations }),
+        body: JSON.stringify({ title: title.trim() || undefined, obligations, token: balance.token }),
       }) as Split;
       setCreated(split);
       setTitle("");

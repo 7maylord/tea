@@ -22,9 +22,11 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import tokenAbiJson from '../abi/TestUSD.json';
+import ausdFaucetAbiJson from '../abi/AusdFaucet.json';
 import { SessionService } from '../identity/session.service';
 
 const tokenAbi = tokenAbiJson as any;
+const ausdFaucetAbi = ausdFaucetAbiJson as any;
 const claimUnits = 10_000n * 1_000_000n;
 const gasGrantWei = parseEther('0.1');
 const gasMinimumWei = parseEther('0.02');
@@ -48,7 +50,13 @@ export class FaucetService {
 
   private config() {
     const rpcUrl = process.env.RPC_URL;
-    const token = process.env.SETTLEMENT_TOKEN;
+    const token = process.env.SETTLEMENT_TOKEN?.toLowerCase();
+    const ausdToken = (
+      process.env.AUSD_TOKEN ?? '0xa9012a055bd4e0edff8ce09f960291c09d5322dc'
+    ).toLowerCase();
+    const ausdFaucet =
+      process.env.AUSD_FAUCET_ADDRESS ??
+      '0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C';
     const chainId = Number(process.env.CHAIN_ID);
     const key =
       process.env.FAUCET_PRIVATE_KEY ?? process.env.RELAYER_PRIVATE_KEY;
@@ -56,24 +64,32 @@ export class FaucetService {
       !rpcUrl ||
       !token ||
       !isAddress(token) ||
+      !isAddress(ausdToken) ||
+      !isAddress(ausdFaucet) ||
       !Number.isSafeInteger(chainId) ||
       !key ||
       !/^0x[0-9a-fA-F]{64}$/.test(key)
     ) {
       throw new ServiceUnavailableException('Faucet is not configured');
     }
-    return { rpcUrl, token, chainId, key: key as Hex };
+    return { rpcUrl, token, ausdToken, ausdFaucet, chainId, key: key as Hex };
   }
 
   private async reserveClaim(
     userId: string,
     chainId: number,
+    tokenAddress: string,
     walletAddress: string,
     claimDay: Date,
   ) {
     const existing = await this.db.faucetClaim.findUnique({
       where: {
-        chainId_walletAddress_claimDay: { chainId, walletAddress, claimDay },
+        chainId_tokenAddress_walletAddress_claimDay: {
+          chainId,
+          tokenAddress,
+          walletAddress,
+          claimDay,
+        },
       },
     });
     if (existing?.state === 'CONFIRMED' || existing?.state === 'PENDING') {
@@ -90,6 +106,7 @@ export class FaucetService {
         data: {
           userId,
           chainId,
+          tokenAddress,
           walletAddress,
           claimDay,
           amountUnits: new Prisma.Decimal(claimUnits.toString()),
@@ -220,11 +237,27 @@ export class FaucetService {
     }
   }
 
-  async claim(identityToken: string | undefined) {
+  async claim(identityToken: string | undefined, input: unknown) {
     if (!identityToken)
       throw new UnauthorizedException('Session token required');
     const user = await this.sessions.sync(identityToken);
-    const { rpcUrl, token, chainId, key } = this.config();
+    const {
+      rpcUrl,
+      token: testToken,
+      ausdToken,
+      ausdFaucet,
+      chainId,
+      key,
+    } = this.config();
+    const requested =
+      input && typeof input === 'object' && !Array.isArray(input)
+        ? (input as Record<string, unknown>).token
+        : undefined;
+    if (typeof requested !== 'string' || !isAddress(requested))
+      throw new ServiceUnavailableException('Faucet token is invalid');
+    const token = requested.toLowerCase();
+    if (token !== testToken && token !== ausdToken)
+      throw new ServiceUnavailableException('Faucet token is not supported');
     if (user.account.chainId !== chainId)
       throw new ServiceUnavailableException('Wrong faucet chain');
 
@@ -234,6 +267,7 @@ export class FaucetService {
       claim = await this.reserveClaim(
         user.id,
         chainId,
+        token,
         user.account.address.toLowerCase(),
         utcClaimDay(),
       );
@@ -252,12 +286,20 @@ export class FaucetService {
         chain,
         transport: http(rpcUrl, { timeout: 10_000 }),
       });
-      const txHash = await wallet.writeContract({
-        address: token as Address,
-        abi: tokenAbi,
-        functionName: 'mint',
-        args: [user.account.address as Address, claimUnits],
-      });
+      const txHash =
+        token === ausdToken
+          ? await wallet.writeContract({
+              address: ausdFaucet as Address,
+              abi: ausdFaucetAbi,
+              functionName: 'requestFunds',
+              args: [user.account.address as Address],
+            })
+          : await wallet.writeContract({
+              address: token as Address,
+              abi: tokenAbi,
+              functionName: 'mint',
+              args: [user.account.address as Address, claimUnits],
+            });
       await this.db.faucetClaim.update({
         where: { id: claim.id },
         data: { txHash },

@@ -21,19 +21,23 @@ export class FundsService {
 
   private config() {
     const rpcUrl = process.env.RPC_URL;
-    const token = process.env.SETTLEMENT_TOKEN;
+    const tokens = (
+      process.env.SETTLEMENT_TOKENS ??
+      process.env.SETTLEMENT_TOKEN ??
+      ''
+    )
+      .split(',')
+      .map((token) => token.trim().toLowerCase())
+      .filter(
+        (token, index, all) => isAddress(token) && all.indexOf(token) === index,
+      );
     const chainId = Number(process.env.CHAIN_ID);
-    if (
-      !rpcUrl ||
-      !token ||
-      !isAddress(token) ||
-      !Number.isSafeInteger(chainId)
-    ) {
+    if (!rpcUrl || tokens.length === 0 || !Number.isSafeInteger(chainId)) {
       throw new ServiceUnavailableException(
         'Settlement network is not configured',
       );
     }
-    return { rpcUrl, token, chainId };
+    return { rpcUrl, tokens, chainId };
   }
 
   async balance(identityToken: string | undefined) {
@@ -43,8 +47,29 @@ export class FundsService {
     return this.readBalance(user.account);
   }
 
-  async readBalance(account: { chainId: number; address: string }) {
-    const { rpcUrl, token, chainId } = this.config();
+  async balances(identityToken: string | undefined) {
+    if (!identityToken)
+      throw new UnauthorizedException('Session token required');
+    const user = await this.sessions.sync(identityToken);
+    const { tokens } = this.config();
+    return Promise.all(
+      tokens.map((token) => this.readBalance(user.account, token)),
+    );
+  }
+
+  async readBalance(
+    account: { chainId: number; address: string },
+    requestedToken?: unknown,
+  ) {
+    const { rpcUrl, tokens, chainId } = this.config();
+    const token =
+      typeof requestedToken === 'string'
+        ? requestedToken.toLowerCase()
+        : tokens[0];
+    if (!isAddress(token) || !tokens.includes(token))
+      throw new ServiceUnavailableException(
+        'Settlement token is not supported',
+      );
     const client = createPublicClient({
       transport: http(rpcUrl, { timeout: 5000 }),
     });

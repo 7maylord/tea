@@ -13,10 +13,10 @@ test('accepts only exact approval and escrow deposit plans', () => {
   const commitment = `0x${'22'.repeat(32)}`;
   const intent = { id, state: 'AWAITING_DEPOSIT', chainId: 10143, escrow, token, payer: account, amountUnits: '1000000', plan: {
     approve: { chainId: 10143, from: account, to: token, value: '0', data: encodeFunctionData({ abi: tokenAbi, functionName: 'approve', args: [escrow, 1000000n] }) },
-    deposit: { chainId: 10143, from: account, to: escrow, value: '0', data: encodeFunctionData({ abi: escrowAbi, functionName: 'deposit', args: [id, commitment, 1000000n] }) },
+    deposit: { chainId: 10143, from: account, to: escrow, value: '0', data: encodeFunctionData({ abi: escrowAbi, functionName: 'deposit', args: [id, commitment, token, 1000000n] }) },
   }};
   assert.equal(checkedClaimPlan(intent, account, token, 10143, '1000000'), intent.plan);
   assert.throws(() => checkedClaimPlan({ ...intent, plan: { ...intent.plan, deposit: { ...intent.plan.deposit,
-    data: encodeFunctionData({ abi: escrowAbi, functionName: 'deposit', args: [id, commitment, 2n] }) } } }, account, token, 10143, '1000000'));
+    data: encodeFunctionData({ abi: escrowAbi, functionName: 'deposit', args: [id, commitment, token, 2n] }) } } }, account, token, 10143, '1000000'));
   assert.throws(() => checkedClaimPlan(intent, account, escrow, 10143, '1000000'));
 });

@@ -268,6 +268,7 @@ model FaucetClaim {
   id            String   @id @default(uuid()) @db.Uuid
   userId        String   @db.Uuid
   chainId       Int
+  tokenAddress  String   @db.VarChar(42)
   walletAddress String   @db.VarChar(42)
   claimDay      DateTime @db.Date
   amountUnits   Decimal  @db.Decimal(78, 0)
@@ -278,7 +279,7 @@ model FaucetClaim {
   updatedAt     DateTime @updatedAt @db.Timestamptz(6)
   user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
 
-  @@unique([chainId, walletAddress, claimDay])
+  @@unique([chainId, tokenAddress, walletAddress, claimDay])
   @@index([userId, createdAt])
   @@map("faucet_claims")
 }

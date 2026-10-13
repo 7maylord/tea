@@ -1,0 +1,9 @@
+[
+  {
+    "type": "function",
+    "name": "requestFunds",
+    "inputs": [{ "name": "recipient", "type": "address" }],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  }
+]

@@ -22,8 +22,8 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
   const [saved, setSaved] = useState<Saved | null>(null);
   const [draft, setDraft] = useState<StreamDraft | null>(null);
   const [busy, setBusy] = useState(false), [done, setDone] = useState(false);
-  const storageKey = `tea:stream:${userId}`;
-  const draftKey = `tea:stream-draft:${userId}`;
+  const storageKey = `tea:stream:${userId}:${token}`;
+  const draftKey = `tea:stream-draft:${userId}:${token}`;
   const api = useCallback(async (path: string, options: RequestInit = {}) => {
     const response = await fetch(`${apiOrigin}${path}`, { ...options, cache: "no-store", headers: { "Content-Type": "application/json", ...await authHeaders(), ...options.headers } });
     if (!response.ok) throw new Error(response.status === 422 ? "Not enough available funds." : "Could not prepare this stream.");
@@ -69,7 +69,7 @@ export default function StreamSend({ apiOrigin, userId, reference, recipient, am
     try {
       const request = draft ?? { createKey: crypto.randomUUID(), reference, amountUnits, durationSeconds };
       if (!draft) { sessionStorage.setItem(draftKey, JSON.stringify(request)); setDraft(request); }
-      const stream = await api("/v1/streams", { method: "POST", headers: { "Idempotency-Key": request.createKey }, body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, durationSeconds: request.durationSeconds }) });
+      const stream = await api("/v1/streams", { method: "POST", headers: { "Idempotency-Key": request.createKey }, body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, durationSeconds: request.durationSeconds, token }) });
       const plan = checkedStreamPlan(stream, address, token, chainId, stream.recipient, amountUnits, durationSeconds);
       const record: Saved = { id: stream.id, recipientAddress: stream.recipient, reference, amountUnits, durationSeconds, submitKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
       save(record); sessionStorage.removeItem(draftKey); setDraft(null);

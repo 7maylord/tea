@@ -23,18 +23,36 @@ contract MonadSmokeScript is Script {
         address sink = address(0x000000000000000000000000000000000000bEEF);
 
         vm.startBroadcast(deployerKey);
-        token.mint(actor, 10 * UNIT);
+        if (vm.envOr("SMOKE_MINT", true)) token.mint(actor, 10 * UNIT);
         require(token.transfer(sink, UNIT), "transfer failed");
 
         token.approve(address(stream), 3 * UNIT);
-        uint256 fastStreamId = stream.create(actor, UNIT, 1);
-        uint256 canceledStreamId = stream.create(actor, UNIT, 1 hours);
+        uint256 fastStreamId = stream.create(address(token), actor, UNIT, 1);
+        uint256 canceledStreamId = stream.create(address(token), actor, UNIT, 1 hours);
         stream.cancel(canceledStreamId);
 
+        bytes32 claimId = _smokeClaim(token, escrow, actor, deployerKey);
+
+        token.approve(address(dateUnlock), UNIT);
+        uint256 lockId = dateUnlock.create(address(token), actor, UNIT, uint64(block.timestamp + 1 hours));
+        vm.stopBroadcast();
+
+        console2.log("Actor", actor);
+        console2.log("FastStreamId", fastStreamId);
+        console2.log("CanceledStreamId", canceledStreamId);
+        console2.log("ClaimId");
+        console2.logBytes32(claimId);
+        console2.log("DateLockId", lockId);
+    }
+
+    function _smokeClaim(TestUSD token, TeaClaimEscrow escrow, address actor, uint256 deployerKey)
+        private
+        returns (bytes32 claimId)
+    {
         token.approve(address(escrow), UNIT);
-        bytes32 claimId = keccak256(abi.encodePacked("tea-smoke-claim", block.chainid, block.timestamp, actor));
+        claimId = keccak256(abi.encodePacked("tea-smoke-claim", block.chainid, block.timestamp, actor));
         bytes32 commitment = keccak256(abi.encodePacked("tea-smoke-commitment", claimId));
-        escrow.deposit(claimId, commitment, UNIT);
+        escrow.deposit(claimId, commitment, address(token), UNIT);
         TeaClaimEscrow.ClaimAuthorization memory authorization = TeaClaimEscrow.ClaimAuthorization({
             claimId: claimId,
             identityCommitment: commitment,
@@ -45,21 +63,10 @@ contract MonadSmokeScript is Script {
             deadline: uint64(block.timestamp + 5 minutes),
             signerEpoch: escrow.signerEpoch()
         });
-        bytes memory identitySignature = _signature(deployerKey, escrow.authorizationDigest(authorization));
-        bytes memory recipientSignature =
-            _signature(deployerKey, escrow.acceptanceDigest(escrow.authorizationDigest(authorization)));
-        escrow.claim(authorization, identitySignature, recipientSignature);
-
-        token.approve(address(dateUnlock), UNIT);
-        uint256 lockId = dateUnlock.create(actor, UNIT, uint64(block.timestamp + 1 hours));
-        vm.stopBroadcast();
-
-        console2.log("Actor", actor);
-        console2.log("FastStreamId", fastStreamId);
-        console2.log("CanceledStreamId", canceledStreamId);
-        console2.log("ClaimId");
-        console2.logBytes32(claimId);
-        console2.log("DateLockId", lockId);
+        bytes32 digest = escrow.authorizationDigest(authorization);
+        escrow.claim(
+            authorization, _signature(deployerKey, digest), _signature(deployerKey, escrow.acceptanceDigest(digest))
+        );
     }
 
     function _signature(uint256 key, bytes32 digest) private pure returns (bytes memory) {

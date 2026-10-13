@@ -14,7 +14,7 @@ import {
   TransactionAttempt,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
-import { encodeFunctionData, type Address } from 'viem';
+import { encodeFunctionData, isAddress, type Address } from 'viem';
 import tokenAbiJson from '../abi/TestUSD.json';
 import { notifySplitParticipant } from '../email/notifications';
 import { FundsService } from '../funds/funds.service';
@@ -123,6 +123,8 @@ export class SplitsService implements OnModuleDestroy {
     const body = input as Record<string, unknown>;
     if (
       !Array.isArray(body.obligations) ||
+      typeof body.token !== 'string' ||
+      !isAddress(body.token) ||
       body.obligations.length < 1 ||
       body.obligations.length > 20 ||
       (body.title !== undefined &&
@@ -157,6 +159,7 @@ export class SplitsService implements OnModuleDestroy {
       .update(
         JSON.stringify({
           title: body.title ?? '',
+          token: body.token.toLowerCase(),
           obligations: obligations.map((item) => ({
             recipientReference: item.recipientReference,
             amountUnits: item.amount.toString(),
@@ -184,7 +187,7 @@ export class SplitsService implements OnModuleDestroy {
       await this.notifyParticipants(existing);
       return this.presentSplit(existing);
     }
-    const balance = await this.funds.readBalance(organizer.account);
+    const balance = await this.funds.readBalance(organizer.account, body.token);
     const snapshots = await Promise.all(
       obligations.map((obligation) =>
         this.sessions.recipientSnapshot(
@@ -336,7 +339,10 @@ export class SplitsService implements OnModuleDestroy {
         throw new ConflictException('Idempotency-Key already used');
       return this.presentPayment(existing);
     }
-    const balance = await this.funds.readBalance(payer.account);
+    const balance = await this.funds.readBalance(
+      payer.account,
+      obligation.split.tokenAddress,
+    );
     const amount = BigInt(obligation.amountUnits.toString());
     const intent = await this.db.$transaction(
       async (tx) => {

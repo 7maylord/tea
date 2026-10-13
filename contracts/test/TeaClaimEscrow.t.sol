@@ -60,7 +60,8 @@ contract TeaClaimEscrowTest is Test {
         signer = vm.addr(SIGNER_KEY);
         recipient = vm.addr(RECIPIENT_KEY);
         token = new EscrowTestToken();
-        escrow = new TeaClaimEscrow(token, signer, address(this));
+        escrow = new TeaClaimEscrow(signer, address(this));
+        escrow.setTokenSupported(address(token), true);
         token.mint(payer, 1_000_000);
         vm.prank(payer);
         token.approve(address(escrow), type(uint256).max);
@@ -68,15 +69,15 @@ contract TeaClaimEscrowTest is Test {
 
     function _deposit(uint256 amount) private {
         vm.prank(payer);
-        escrow.deposit(CLAIM_ID, COMMITMENT, amount);
+        escrow.deposit(CLAIM_ID, COMMITMENT, address(token), amount);
     }
 
     function _authorization(address destination) private view returns (TeaClaimEscrow.ClaimAuthorization memory auth) {
-        (, uint256 amount, uint64 expiry, bytes32 commitment,) = escrow.claims(CLAIM_ID);
+        (, address settlementToken, uint256 amount, uint64 expiry, bytes32 commitment,) = escrow.claims(CLAIM_ID);
         auth = TeaClaimEscrow.ClaimAuthorization({
             claimId: CLAIM_ID,
             identityCommitment: commitment,
-            token: address(token),
+            token: settlementToken,
             amount: amount,
             recipient: destination,
             nonce: escrow.nonces(CLAIM_ID),
@@ -108,11 +109,11 @@ contract TeaClaimEscrowTest is Test {
         TeaClaimEscrow.ClaimAuthorization memory auth = _authorization(recipient);
         bytes32 digest = escrow.authorizationDigest(auth);
         vm.expectEmit(true, true, true, true, address(escrow));
-        emit TeaClaimEscrow.ClaimPaid(CLAIM_ID, payer, recipient, 100);
+        emit TeaClaimEscrow.ClaimPaid(CLAIM_ID, payer, recipient, address(token), 100);
         vm.prank(address(0xBEEF));
         escrow.claim(auth, _sign(SIGNER_KEY, digest), _sign(RECIPIENT_KEY, escrow.acceptanceDigest(digest)));
         assertEq(token.balanceOf(recipient), 100);
-        assertEq(escrow.totalLiability(), 0);
+        assertEq(escrow.totalLiability(address(token)), 0);
         assertEq(escrow.nonces(CLAIM_ID), 1);
         _expectClaimRevert(auth, TeaClaimEscrow.InvalidClaim.selector);
         vm.warp(1_000 + 14 days);
@@ -177,7 +178,8 @@ contract TeaClaimEscrowTest is Test {
         vm.expectRevert(TeaClaimEscrow.InvalidSignature.selector);
         escrow.claim(auth, identitySignature, recipientSignature);
         vm.chainId(block.chainid - 1);
-        TeaClaimEscrow anotherEscrow = new TeaClaimEscrow(token, signer, address(this));
+        TeaClaimEscrow anotherEscrow = new TeaClaimEscrow(signer, address(this));
+        anotherEscrow.setTokenSupported(address(token), true);
         assertTrue(anotherEscrow.authorizationDigest(auth) != digest);
 
         auth.deadline = uint64(block.timestamp - 1);
@@ -213,7 +215,7 @@ contract TeaClaimEscrowTest is Test {
         vm.prank(address(0xBEEF));
         escrow.refund(CLAIM_ID);
         assertEq(token.balanceOf(payer), 1_000_000);
-        assertEq(escrow.totalLiability(), 0);
+        assertEq(escrow.totalLiability(address(token)), 0);
         assertEq(token.balanceOf(address(escrow)), 0);
         vm.expectRevert(TeaClaimEscrow.InvalidClaim.selector);
         escrow.refund(CLAIM_ID);
@@ -226,7 +228,7 @@ contract TeaClaimEscrowTest is Test {
         escrow.setPaused(true);
         vm.prank(payer);
         vm.expectRevert();
-        escrow.deposit(CLAIM_ID, COMMITMENT, 100);
+        escrow.deposit(CLAIM_ID, COMMITMENT, address(token), 100);
         escrow.setPaused(false);
         _deposit(100);
         escrow.setPaused(true);
@@ -236,25 +238,25 @@ contract TeaClaimEscrowTest is Test {
     function testRejectsDuplicateZeroAndFeeToken() public {
         vm.startPrank(payer);
         vm.expectRevert(TeaClaimEscrow.InvalidTerms.selector);
-        escrow.deposit(bytes32(0), COMMITMENT, 1);
+        escrow.deposit(bytes32(0), COMMITMENT, address(token), 1);
         vm.expectRevert(TeaClaimEscrow.InvalidTerms.selector);
-        escrow.deposit(CLAIM_ID, bytes32(0), 1);
+        escrow.deposit(CLAIM_ID, bytes32(0), address(token), 1);
         vm.expectRevert(TeaClaimEscrow.InvalidTerms.selector);
-        escrow.deposit(CLAIM_ID, COMMITMENT, 0);
+        escrow.deposit(CLAIM_ID, COMMITMENT, address(token), 0);
         vm.stopPrank();
         token.setChargeFee(true);
         vm.prank(payer);
         vm.expectRevert(TeaClaimEscrow.UnsupportedToken.selector);
-        escrow.deposit(CLAIM_ID, COMMITMENT, 100);
+        escrow.deposit(CLAIM_ID, COMMITMENT, address(token), 100);
         assertEq(token.balanceOf(address(escrow)), 0);
         token.setChargeFee(false);
         _deposit(100);
         vm.prank(payer);
         vm.expectRevert(TeaClaimEscrow.InvalidTerms.selector);
-        escrow.deposit(CLAIM_ID, COMMITMENT, 100);
+        escrow.deposit(CLAIM_ID, COMMITMENT, address(token), 100);
         token.setChargeFee(true);
         _expectClaimRevert(_authorization(recipient), TeaClaimEscrow.UnsupportedToken.selector);
-        assertEq(escrow.totalLiability(), 100);
+        assertEq(escrow.totalLiability(address(token)), 100);
         assertEq(token.balanceOf(address(escrow)), 100);
     }
 
@@ -264,13 +266,13 @@ contract TeaClaimEscrowTest is Test {
         _claim(_authorization(recipient), RECIPIENT_KEY);
         assertTrue(token.reentryBlocked());
         assertEq(token.balanceOf(recipient), 100);
-        assertEq(escrow.totalLiability(), 0);
+        assertEq(escrow.totalLiability(address(token)), 0);
     }
 
     function testFuzzTerminalPayoutConservesFunds(uint96 amount, bool recipientClaims) public {
         amount = uint96(bound(amount, 1, 1_000_000));
         _deposit(amount);
-        assertEq(token.balanceOf(address(escrow)), escrow.totalLiability());
+        assertEq(token.balanceOf(address(escrow)), escrow.totalLiability(address(token)));
         if (recipientClaims) {
             _claim(_authorization(recipient), RECIPIENT_KEY);
             assertEq(token.balanceOf(recipient), amount);
@@ -280,22 +282,22 @@ contract TeaClaimEscrowTest is Test {
             assertEq(token.balanceOf(payer), 1_000_000);
         }
         assertEq(token.balanceOf(address(escrow)), 0);
-        assertEq(escrow.totalLiability(), 0);
+        assertEq(escrow.totalLiability(address(token)), 0);
     }
 
     function testConcurrentClaimsKeepLiabilitiesBacked() public {
         _deposit(100);
         bytes32 secondId = keccak256("claim 2");
         vm.prank(payer);
-        escrow.deposit(secondId, keccak256("second identity"), 70);
-        assertEq(escrow.totalLiability(), 170);
+        escrow.deposit(secondId, keccak256("second identity"), address(token), 70);
+        assertEq(escrow.totalLiability(address(token)), 170);
         _claim(_authorization(recipient), RECIPIENT_KEY);
-        assertEq(token.balanceOf(address(escrow)), escrow.totalLiability());
-        assertEq(escrow.totalLiability(), 70);
+        assertEq(token.balanceOf(address(escrow)), escrow.totalLiability(address(token)));
+        assertEq(escrow.totalLiability(address(token)), 70);
         vm.warp(1_000 + 14 days);
         escrow.refund(secondId);
         assertEq(token.balanceOf(address(escrow)), 0);
-        assertEq(escrow.totalLiability(), 0);
+        assertEq(escrow.totalLiability(address(token)), 0);
         assertEq(token.balanceOf(payer), 1_000_000 - 100);
     }
 }

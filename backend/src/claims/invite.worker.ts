@@ -68,16 +68,17 @@ export async function processNextClaimInvite(
     });
     if (
       onchain[0].toLowerCase() !== claim.payerAddress ||
-      onchain[1] !== BigInt(claim.amountUnits.toString()) ||
-      onchain[3] !== claim.identityCommitment ||
-      onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0)
+      onchain[1].toLowerCase() !== claim.tokenAddress ||
+      onchain[2] !== BigInt(claim.amountUnits.toString()) ||
+      onchain[4] !== claim.identityCommitment ||
+      onchain[3] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0)
     ) {
       throw new Error('Claim is not ready');
     }
     if (
-      onchain[4] === 2 ||
-      onchain[4] === 3 ||
-      (onchain[4] === 1 && block.timestamp >= onchain[2])
+      onchain[5] === 2 ||
+      onchain[5] === 3 ||
+      (onchain[5] === 1 && block.timestamp >= onchain[3])
     ) {
       await db.outboxJob.updateMany({
         where: { id: job.id, state: 'PROCESSING', leaseUntil },
@@ -85,7 +86,7 @@ export async function processNextClaimInvite(
       });
       return true;
     }
-    if (claim.state !== 'OPEN' || onchain[4] !== 1)
+    if (claim.state !== 'OPEN' || onchain[5] !== 1)
       throw new Error('Claim is not ready');
     const appOrigin = process.env.APP_ORIGIN;
     if (!appOrigin) throw new Error('Email unavailable');
@@ -103,11 +104,14 @@ export async function processNextClaimInvite(
     await sendTeaEmail({
       to: email,
       subject: `${sender} sent you a payment on TEA`,
-      preheader: `${formatTeaAmount(BigInt(claim.amountUnits.toString()))} is waiting for you.`,
+      preheader: `${formatTeaAmount(BigInt(claim.amountUnits.toString()), claim.tokenAddress)} is waiting for you.`,
       eyebrow: 'A TEA payment',
       heading: 'A little something arrived.',
       body: `${sender} sent you a payment. Verify this email and collect it securely with your TEA passkey.`,
-      amount: formatTeaAmount(BigInt(claim.amountUnits.toString())),
+      amount: formatTeaAmount(
+        BigInt(claim.amountUnits.toString()),
+        claim.tokenAddress,
+      ),
       detail: `Claim it before ${claim.expiry?.toUTCString() ?? 'the invitation expires'}.`,
       ctaLabel: 'Collect payment',
       ctaUrl: link,

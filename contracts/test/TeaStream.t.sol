@@ -64,15 +64,19 @@ contract TeaStreamTest is Test {
         uint256 indexed streamId,
         address indexed sender,
         address indexed recipient,
+        address token,
         uint256 deposit,
         uint64 start,
         uint64 end
     );
-    event StreamWithdrawn(uint256 indexed streamId, address indexed sender, address indexed recipient, uint256 amount);
+    event StreamWithdrawn(
+        uint256 indexed streamId, address indexed sender, address indexed recipient, address token, uint256 amount
+    );
     event StreamCanceled(
         uint256 indexed streamId,
         address indexed sender,
         address indexed recipient,
+        address token,
         uint256 recipientEntitlement,
         uint256 senderRefund
     );
@@ -84,7 +88,8 @@ contract TeaStreamTest is Test {
 
     function setUp() public {
         token = new TestToken();
-        stream = new TeaStream(token);
+        stream = new TeaStream(address(this));
+        stream.setTokenSupported(address(token), true);
         token.mint(sender, 1_000_000);
         vm.prank(sender);
         token.approve(address(stream), type(uint256).max);
@@ -93,28 +98,28 @@ contract TeaStreamTest is Test {
 
     function _create(uint256 amount, uint64 duration) private returns (uint256 id) {
         vm.prank(sender);
-        id = stream.create(recipient, amount, duration);
+        id = stream.create(address(token), recipient, amount, duration);
     }
 
     function testLifecycleEventsCanReconstructParticipantBalances() public {
         vm.expectEmit(true, true, true, true, address(stream));
-        emit StreamCreated(1, sender, recipient, 100, 1_000, 1_010);
+        emit StreamCreated(1, sender, recipient, address(token), 100, 1_000, 1_010);
         uint256 id = _create(100, 10);
 
         vm.warp(1_003);
         vm.expectEmit(true, true, true, true, address(stream));
-        emit StreamWithdrawn(id, sender, recipient, 30);
+        emit StreamWithdrawn(id, sender, recipient, address(token), 30);
         vm.prank(recipient);
         stream.withdraw(id);
 
         vm.warp(1_006);
         vm.expectEmit(true, true, true, true, address(stream));
-        emit StreamCanceled(id, sender, recipient, 60, 40);
+        emit StreamCanceled(id, sender, recipient, address(token), 60, 40);
         vm.prank(sender);
         stream.cancel(id);
 
         vm.expectEmit(true, true, true, true, address(stream));
-        emit StreamWithdrawn(id, sender, recipient, 30);
+        emit StreamWithdrawn(id, sender, recipient, address(token), 30);
         vm.prank(recipient);
         stream.withdraw(id);
     }
@@ -132,14 +137,14 @@ contract TeaStreamTest is Test {
         vm.warp(1_007);
         vm.prank(sender);
         assertEq(stream.cancel(id), 31);
-        assertEq(stream.totalLiability(), 40);
+        assertEq(stream.totalLiability(address(token)), 40);
         vm.warp(2_000);
         assertEq(stream.withdrawable(id), 40);
         vm.prank(recipient);
         assertEq(stream.withdraw(id), 40);
         assertEq(token.balanceOf(recipient), 70);
         assertEq(token.balanceOf(sender), 1_000_000 - 70);
-        assertEq(stream.totalLiability(), 0);
+        assertEq(stream.totalLiability(address(token)), 0);
         assertEq(token.balanceOf(address(stream)), 0);
     }
 
@@ -172,7 +177,7 @@ contract TeaStreamTest is Test {
         token.setChargeFee(true);
         vm.prank(sender);
         vm.expectRevert(TeaStream.UnsupportedToken.selector);
-        stream.create(recipient, 100, 10);
+        stream.create(address(token), recipient, 100, 10);
         assertEq(token.balanceOf(address(stream)), 0);
     }
 
@@ -184,7 +189,7 @@ contract TeaStreamTest is Test {
         vm.expectRevert(TeaStream.UnsupportedToken.selector);
         stream.withdraw(id);
         assertEq(stream.withdrawable(id), 100);
-        assertEq(stream.totalLiability(), 100);
+        assertEq(stream.totalLiability(address(token)), 100);
         assertEq(token.balanceOf(address(stream)), 100);
     }
 
@@ -199,7 +204,7 @@ contract TeaStreamTest is Test {
     function testConcurrentStreamsRemainFullyBacked() public {
         uint256 first = _create(101, 10);
         uint256 second = _create(99, 20);
-        assertEq(stream.totalLiability(), 200);
+        assertEq(stream.totalLiability(address(token)), 200);
         assertEq(token.balanceOf(address(stream)), 200);
 
         vm.warp(1_005);
@@ -207,13 +212,13 @@ contract TeaStreamTest is Test {
         assertEq(stream.cancel(first), 51);
         vm.prank(recipient);
         assertEq(stream.withdraw(first), 50);
-        assertEq(stream.totalLiability(), 99);
+        assertEq(stream.totalLiability(address(token)), 99);
         assertEq(token.balanceOf(address(stream)), 99);
 
         vm.warp(1_020);
         vm.prank(recipient);
         assertEq(stream.withdraw(second), 99);
-        assertEq(stream.totalLiability(), 0);
+        assertEq(stream.totalLiability(address(token)), 0);
         assertEq(token.balanceOf(address(stream)), 0);
     }
 
@@ -229,7 +234,7 @@ contract TeaStreamTest is Test {
             collected = stream.withdraw(id);
         }
         assertEq(refund + collected, amount);
-        assertEq(stream.totalLiability(), 0);
+        assertEq(stream.totalLiability(address(token)), 0);
         assertEq(token.balanceOf(address(stream)), 0);
     }
 }

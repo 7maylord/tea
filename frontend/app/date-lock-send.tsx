@@ -21,8 +21,8 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
   const [saved, setSaved] = useState<Saved | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false), [done, setDone] = useState(false);
-  const storageKey = `tea:date-lock:${userId}`;
-  const draftKey = `tea:date-lock-draft:${userId}`;
+  const storageKey = `tea:date-lock:${userId}:${token}`;
+  const draftKey = `tea:date-lock-draft:${userId}:${token}`;
   const api = useCallback(async (path: string, options: RequestInit = {}) => {
     const response = await fetch(`${apiOrigin}${path}`, { ...options, cache: "no-store", headers: { "Content-Type": "application/json", ...await authHeaders(), ...options.headers } });
     if (!response.ok) throw new Error(response.status === 422 ? "Not enough available funds." : "Could not prepare this date lock.");
@@ -67,7 +67,7 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
     try {
       const request = draft ?? { createKey: crypto.randomUUID(), reference, amountUnits, unlockAt };
       if (!draft) { sessionStorage.setItem(draftKey, JSON.stringify(request)); setDraft(request); }
-      const lock = await api("/v1/date-locks", { method: "POST", headers: { "Idempotency-Key": request.createKey }, body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, unlockAt: request.unlockAt }) });
+      const lock = await api("/v1/date-locks", { method: "POST", headers: { "Idempotency-Key": request.createKey }, body: JSON.stringify({ recipientReference: request.reference, amountUnits: request.amountUnits, unlockAt: request.unlockAt, token }) });
       const plan = checkedDateLockPlan(lock, address, token, chainId, lock.recipient, amountUnits, unlockAt);
       const record: Saved = { id: lock.id, recipientAddress: lock.recipient, reference, amountUnits, unlockAt, submitKey: crypto.randomUUID(), stage: "APPROVAL_REQUESTED" };
       save(record); sessionStorage.removeItem(draftKey); setDraft(null);

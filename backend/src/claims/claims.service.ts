@@ -127,6 +127,7 @@ export class ClaimsService implements OnModuleDestroy {
                 args: [
                   claim.id as `0x${string}`,
                   claim.identityCommitment as `0x${string}`,
+                  claim.tokenAddress as Address,
                   BigInt(claim.amountUnits.toString()),
                 ],
               }),
@@ -214,8 +215,11 @@ export class ClaimsService implements OnModuleDestroy {
     }
     const body = input as Record<string, unknown>;
     if (
-      Object.keys(body).sort().join(',') !== 'amountUnits,recipientEmail' ||
+      Object.keys(body).sort().join(',') !==
+        'amountUnits,recipientEmail,token' ||
       typeof body.recipientEmail !== 'string' ||
+      typeof body.token !== 'string' ||
+      !isAddress(body.token) ||
       body.recipientEmail.length > 254 ||
       typeof body.amountUnits !== 'string' ||
       !/^[1-9][0-9]{0,77}$/.test(body.amountUnits) ||
@@ -235,6 +239,7 @@ export class ClaimsService implements OnModuleDestroy {
         JSON.stringify({
           recipientEmail: email,
           amountUnits: body.amountUnits,
+          token: body.token.toLowerCase(),
         }),
       )
       .digest('hex');
@@ -272,18 +277,19 @@ export class ClaimsService implements OnModuleDestroy {
     if (payerEmail?.lookupKey === lookupKey)
       throw new BadRequestException('Cannot claim your own payment');
 
-    const balance = await this.funds.readBalance(payer.account);
+    const balance = await this.funds.readBalance(payer.account, body.token);
     const client = createPublicClient({
       transport: http(rpcUrl, { timeout: 5000 }),
     });
     try {
-      const escrowToken = await client.readContract({
+      const supported = await client.readContract({
         address: escrowAddress,
         abi: escrowAbi,
-        functionName: 'token',
+        functionName: 'supportedTokens',
+        args: [balance.token],
         blockNumber: BigInt(balance.blockNumber),
       });
-      if (escrowToken.toLowerCase() !== balance.token.toLowerCase()) {
+      if (!supported) {
         throw new Error('Wrong escrow token');
       }
     } catch {
@@ -401,7 +407,7 @@ export class ClaimsService implements OnModuleDestroy {
     }
     const { onchain } = await this.readOnchainClaim(refreshed);
     const state =
-      onchain[4] === 2 ? 'CLAIMED' : onchain[4] === 3 ? 'REFUNDED' : 'OPEN';
+      onchain[5] === 2 ? 'CLAIMED' : onchain[5] === 3 ? 'REFUNDED' : 'OPEN';
     if (state === refreshed.state) return this.present(refreshed);
     await this.db.claim.updateMany({
       where: { id, state: refreshed.state },
@@ -435,6 +441,7 @@ export class ClaimsService implements OnModuleDestroy {
         args: [
           claim.id as Hex,
           claim.identityCommitment as Hex,
+          claim.tokenAddress as Address,
           BigInt(claim.amountUnits.toString()),
         ],
       });
@@ -473,6 +480,7 @@ export class ClaimsService implements OnModuleDestroy {
           log.address.toLowerCase() === claim.escrowAddress &&
           log.args.claimId === claim.id &&
           log.args.payer?.toLowerCase() === claim.payerAddress &&
+          log.args.token?.toLowerCase() === claim.tokenAddress &&
           log.args.identityCommitment === claim.identityCommitment &&
           log.args.amount === BigInt(claim.amountUnits.toString()),
       );
@@ -691,11 +699,12 @@ export class ClaimsService implements OnModuleDestroy {
       });
       if (
         onchain[0].toLowerCase() !== claim.payerAddress ||
-        onchain[1] !== BigInt(claim.amountUnits.toString()) ||
-        onchain[3] !== claim.identityCommitment ||
-        onchain[2] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0) ||
-        onchain[4] < 1 ||
-        onchain[4] > 3
+        onchain[1].toLowerCase() !== claim.tokenAddress ||
+        onchain[2] !== BigInt(claim.amountUnits.toString()) ||
+        onchain[4] !== claim.identityCommitment ||
+        onchain[3] * 1000n !== BigInt(claim.expiry?.getTime() ?? 0) ||
+        onchain[5] < 1 ||
+        onchain[5] > 3
       ) {
         throw new NotFoundException('Invitation unavailable');
       }
@@ -755,11 +764,11 @@ export class ClaimsService implements OnModuleDestroy {
       token: claim.tokenAddress,
       expiry: claim.expiry?.toISOString(),
       state:
-        onchain[4] === 1
-          ? block.timestamp < onchain[2]
+        onchain[5] === 1
+          ? block.timestamp < onchain[3]
             ? 'OPEN'
             : 'REFUNDABLE'
-          : onchain[4] === 2
+          : onchain[5] === 2
             ? 'CLAIMED'
             : 'REFUNDED',
     };
@@ -795,15 +804,14 @@ export class ClaimsService implements OnModuleDestroy {
     );
     if (claim.id !== id) throw new NotFoundException('Invitation unavailable');
     const { client, block, onchain } = await this.readOnchainClaim(claim);
-    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+    if (onchain[5] !== 1 || block.timestamp >= onchain[3]) {
       throw new ConflictException('Claim is no longer available');
     }
     let nonce: bigint;
     let signerEpoch: bigint;
     let signerAddress: Address;
-    let tokenAddress: Address;
     try {
-      [nonce, signerEpoch, signerAddress, tokenAddress] = await Promise.all([
+      [nonce, signerEpoch, signerAddress] = await Promise.all([
         client.readContract({
           address: claim.escrowAddress as Address,
           abi: escrowAbi,
@@ -823,20 +831,11 @@ export class ClaimsService implements OnModuleDestroy {
           functionName: 'identitySigner',
           blockNumber: block.number,
         }),
-        client.readContract({
-          address: claim.escrowAddress as Address,
-          abi: escrowAbi,
-          functionName: 'token',
-          blockNumber: block.number,
-        }),
       ]);
     } catch {
       throw new ServiceUnavailableException(
         'Claim authorization state is unavailable',
       );
-    }
-    if (tokenAddress.toLowerCase() !== claim.tokenAddress) {
-      throw new ServiceUnavailableException('Claim token changed');
     }
     const signerKey = process.env.CLAIM_IDENTITY_SIGNER_PRIVATE_KEY;
     if (!signerKey || !/^0x[0-9a-fA-F]{64}$/.test(signerKey)) {
@@ -891,9 +890,9 @@ export class ClaimsService implements OnModuleDestroy {
       );
     }
     const deadline =
-      block.timestamp + 300n < onchain[2]
+      block.timestamp + 300n < onchain[3]
         ? block.timestamp + 300n
-        : onchain[2] - 1n;
+        : onchain[3] - 1n;
     if (deadline <= block.timestamp) {
       throw new ConflictException('Claim is too close to expiry');
     }
@@ -1061,7 +1060,7 @@ export class ClaimsService implements OnModuleDestroy {
       return { id, state: existingJob.state, txHash: existingJob.txHash };
     }
     const { client, block, onchain } = await this.readOnchainClaim(claim);
-    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+    if (onchain[5] !== 1 || block.timestamp >= onchain[3]) {
       throw new ConflictException('Claim is no longer available');
     }
     const [nonce, signerEpoch] = await Promise.all([
@@ -1177,9 +1176,9 @@ export class ClaimsService implements OnModuleDestroy {
     });
     if (!claim) throw new NotFoundException();
     const { block, onchain } = await this.readOnchainClaim(claim);
-    if (onchain[4] === 2) return { id, state: 'CLAIMED' };
-    if (onchain[4] === 3) return { id, state: 'REFUNDED' };
-    if (block.timestamp < onchain[2]) {
+    if (onchain[5] === 2) return { id, state: 'CLAIMED' };
+    if (onchain[5] === 3) return { id, state: 'REFUNDED' };
+    if (block.timestamp < onchain[3]) {
       throw new ConflictException('Claim is not yet refundable');
     }
     await this.db.outboxJob.createMany({
@@ -1215,7 +1214,7 @@ export class ClaimsService implements OnModuleDestroy {
     });
     if (!claim) throw new NotFoundException();
     const { block, onchain } = await this.readOnchainClaim(claim);
-    if (onchain[4] !== 1 || block.timestamp >= onchain[2]) {
+    if (onchain[5] !== 1 || block.timestamp >= onchain[3]) {
       throw new ConflictException('Claim invitation is no longer active');
     }
     const keyHash = createHash('sha256').update(idempotencyKey).digest('hex');

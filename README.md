@@ -20,19 +20,23 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 - **Date unlock** — `TeaDateUnlock` releases the full funded amount to the recipient after a chosen date.
 - **Split requests** — offchain split ledger for tracking who should pay whom.
 - **Private activity** — backend-owned threads backed by RPC-verified transaction submissions.
-- **Test faucet** — authenticated wallets can claim 10,000 TUSD and receive a limited MON gas allowance once per UTC day.
+- **Test faucet** — authenticated wallets can claim 10,000 TUSD or AUSD and receive a limited MON gas allowance once per UTC day.
 - **Mobile PWA** — responsive send, claim, stream, split, and activity flows.
 
 ## Deployed Monad testnet contracts
 
 | Contract | Address |
 | --- | --- |
-| TestUSD | `0x82cE012544F85E33930C5272bdeAE76736A8F22b` |
-| TeaStream | `0x3379CdE825960C49b456c62f6bb485902B7dA830` |
-| TeaClaimEscrow | `0xF3DeE532B0d0d29c4E4B64b004b7f286E1Cf9814` |
-| TeaDateUnlock | `0x0A695c494ecF2c18dD26FB60F95FbD7d105EfB84` |
+| TestUSD (TUSD) | `0x82cE012544F85E33930C5272bdeAE76736A8F22b` |
+| Agora AUSD | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
+| Agora AUSD Faucet | `0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C` |
+| TeaStream | `0x38977cF2979F5040B5Cc660812e1faF802e15AdC` |
+| TeaClaimEscrow | `0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA` |
+| TeaDateUnlock | `0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9` |
 
-Chain ID: `10143`. Optional Envio bounty indexers should start at block `65515139`.
+Chain ID: `10143`. The multi-token deployment starts at block `70763435`; Envio indexes TUSD and AUSD transfers plus TEA lifecycle events from that block.
+
+The deployment owner can add a future ERC-20 without redeploying by calling `setTokenSupported(token, true)` on TeaStream, TeaClaimEscrow, and TeaDateUnlock, then adding the address to `SETTLEMENT_TOKENS`.
 
 ## Repo layout
 
@@ -110,7 +114,8 @@ Backend env lives in `backend/.env` locally and platform env vars in production:
 
 ```text
 APP_ENV, PORT, APP_ORIGIN, API_ORIGIN
-CHAIN_ID, RPC_URL, SETTLEMENT_TOKEN, SETTLEMENT_TOKEN_DECIMALS
+CHAIN_ID, RPC_URL, SETTLEMENT_TOKEN, SETTLEMENT_TOKENS, SETTLEMENT_TOKEN_DECIMALS
+AUSD_TOKEN, AUSD_FAUCET_ADDRESS
 CLAIM_ESCROW_ADDRESS, TEA_STREAM_ADDRESS, TEA_DATE_UNLOCK_ADDRESS
 DATABASE_URL, REDIS_URL
 PRIVY_APP_ID, PRIVY_APP_SECRET

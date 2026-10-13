@@ -81,15 +81,16 @@ export function checkedDateLockPlan(
   }
   try {
     const approve = decodeFunctionData({ abi: tokenAbi, data: plan.approve.data }) as DecodedCall<"approve", readonly [string, bigint]>;
-    const create = decodeFunctionData({ abi: dateUnlockAbi, data: plan.create.data }) as DecodedCall<"create", readonly [string, bigint, bigint]>;
+    const create = decodeFunctionData({ abi: dateUnlockAbi, data: plan.create.data }) as DecodedCall<"create", readonly [string, string, bigint, bigint]>;
     if (
       approve.functionName !== "approve" ||
       approve.args[0].toLowerCase() !== intent.dateUnlockContract.toLowerCase() ||
       approve.args[1] !== BigInt(amountUnits) ||
       create.functionName !== "create" ||
-      create.args[0].toLowerCase() !== recipient.toLowerCase() ||
-      create.args[1] !== BigInt(amountUnits) ||
-      create.args[2] !== unlockSeconds
+      create.args[0].toLowerCase() !== token.toLowerCase() ||
+      create.args[1].toLowerCase() !== recipient.toLowerCase() ||
+      create.args[2] !== BigInt(amountUnits) ||
+      create.args[3] !== unlockSeconds
     ) throw new Error("Wrong plan");
   } catch {
     throw new Error("Date lock details changed. Start again.");

@@ -9,4 +9,9 @@ export class FundsController {
   balance(@Headers('privy-id-token') token: string | undefined) {
     return this.funds.balance(token);
   }
+
+  @Get('balances')
+  balances(@Headers('privy-id-token') token: string | undefined) {
+    return this.funds.balances(token);
+  }
 }

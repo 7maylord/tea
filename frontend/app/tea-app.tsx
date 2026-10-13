@@ -52,12 +52,14 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [faucetBusy, setFaucetBusy] = useState(false);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
-  const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
+  const [balances, setBalances] = useState<{ ownerId: string; data: Balance[] } | null>(null);
+  const [selectedToken, setSelectedToken] = useState('');
   const [balanceVersion, setBalanceVersion] = useState(0);
   const [view, setView] = useState<'home' | 'send' | 'activity' | 'profile'>('home');
   const did = user?.id;
   const session = active && active.did === did ? active.session : null;
-  const visibleBalance = balance && balance.ownerId === session?.id ? balance.data : null;
+  const visibleBalances = balances && balances.ownerId === session?.id ? balances.data : [];
+  const visibleBalance = visibleBalances.find((item) => item.token === selectedToken) ?? visibleBalances[0] ?? null;
   const refreshAfterPayment = useCallback(() => setBalanceVersion((value) => value + 1), []);
 
   useEffect(() => {
@@ -112,16 +114,19 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     if (!online || view !== 'home' || !session?.handle || !session.account) return;
     const controller = new AbortController();
     void authHeaders()
-      .then((headers) => fetch(`${apiOrigin}/v1/balance`, {
+      .then((headers) => fetch(`${apiOrigin}/v1/balances`, {
         headers,
         cache: 'no-store',
         signal: controller.signal,
       }))
       .then(async (response) => {
         if (!response.ok) throw new Error('Balance unavailable');
-        return (await response.json()) as Balance;
+        return (await response.json()) as Balance[];
       })
-      .then((data) => setBalance({ ownerId: session.id, data }))
+      .then((data) => {
+        setBalances({ ownerId: session.id, data });
+        setSelectedToken((current) => data.some((item) => item.token === current) ? current : (data[0]?.token ?? ''));
+      })
       .catch(() => {
         if (!controller.signal.aborted) toast.error('Could not refresh your balance. Try again.', { id: 'balance-refresh' });
       });
@@ -150,7 +155,8 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       setActive(null);
       setHandle('');
       setError('');
-      setBalance(null);
+      setBalances(null);
+      setSelectedToken('');
       setView('home');
     } catch {
       toast.error('Could not sign out. Try again.', { id: 'sign-out' });
@@ -195,11 +201,12 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
     try {
       const response = await fetch(`${apiOrigin}/v1/faucet/claim`, {
         method: 'POST',
-        headers: await authHeaders(),
+        headers: { 'Content-Type': 'application/json', ...await authHeaders() },
+        body: JSON.stringify({ token: visibleBalance?.token }),
       });
       if (response.status === 409) throw new Error('You already claimed today.');
       if (!response.ok) throw new Error('Could not claim test funds. Try again.');
-      toast.success('10,000 TUSD claimed.', { id: 'faucet' });
+      toast.success(`10,000 ${visibleBalance?.symbol ?? 'tokens'} claimed.`, { id: 'faucet' });
       setBalanceVersion((value) => value + 1);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Could not claim test funds.', { id: 'faucet' });
@@ -257,18 +264,21 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
               }}>
                 <div className="tea-balance-rings" aria-hidden="true"><i /><i /><i /></div>
                 <div className="tea-balance-top"><span className="tea-eyebrow">TEA wallet</span><span className="tea-wallet-mark" aria-hidden="true">↗</span></div>
+                <div className="mt-4 flex gap-2" aria-label="Settlement token">
+                  {visibleBalances.map((item) => <button key={item.token} type="button" aria-pressed={item.token === visibleBalance?.token} onClick={() => setSelectedToken(item.token)} className={`min-h-10 rounded-full px-4 text-sm font-semibold ${item.token === visibleBalance?.token ? 'bg-white text-[#173e32]' : 'border border-white/40 text-white'}`}>{item.symbol}</button>)}
+                </div>
                 <p className="tea-balance-label">Available balance</p>
                 <p className="tea-balance-amount">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
                 <div className="tea-balance-actions">
                   <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
-                  <button type="button" disabled={faucetBusy || !online} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : 'Claim 10,000 TUSD'}</button>
+                  <button type="button" disabled={faucetBusy || !online || !visibleBalance} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : `Claim 10,000 ${visibleBalance?.symbol ?? ''}`}</button>
                 </div>
               </div>
               <button type="button" onClick={() => setView('send')} className="tea-send-action"><span><span className="tea-action-label">Make someone’s day</span>Send money</span><span className="tea-action-arrow" aria-hidden="true">↗</span></button>
               <AuroraTopUp address={session.account.address} />
             </>}
             {view === 'send' && <SendFlow apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onBack={() => setView('home')} onSettled={refreshAfterPayment} />}
-            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balance={visibleBalance} onSettled={refreshAfterPayment} />}
+            {view === 'activity' && <Activity key={session.id} apiOrigin={apiOrigin} userId={session.id} address={session.account.address} chainId={session.account.chainId} balances={visibleBalances} onSettled={refreshAfterPayment} />}
             {view === 'profile' && <>
               <p className="tea-eyebrow">Personally yours</p>
               <h1 className="tea-page-title">Your little corner.</h1>

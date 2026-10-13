@@ -100,6 +100,7 @@ export class StreamsService implements OnModuleDestroy {
                 abi: streamAbi,
                 functionName: 'create',
                 args: [
+                  intent.tokenAddress as Address,
                   intent.recipientAddress as Address,
                   amount,
                   intent.durationSeconds,
@@ -156,8 +157,10 @@ export class StreamsService implements OnModuleDestroy {
     const body = input as Record<string, unknown>;
     if (
       Object.keys(body).sort().join(',') !==
-        'amountUnits,durationSeconds,recipientReference' ||
+        'amountUnits,durationSeconds,recipientReference,token' ||
       typeof body.recipientReference !== 'string' ||
+      typeof body.token !== 'string' ||
+      !isAddress(body.token) ||
       typeof body.amountUnits !== 'string' ||
       !/^[1-9][0-9]{0,77}$/.test(body.amountUnits) ||
       BigInt(body.amountUnits) > (1n << 256n) - 1n ||
@@ -172,6 +175,7 @@ export class StreamsService implements OnModuleDestroy {
           recipientReference: body.recipientReference,
           amountUnits: body.amountUnits,
           durationSeconds: body.durationSeconds,
+          token: body.token.toLowerCase(),
         }),
       )
       .digest('hex');
@@ -203,19 +207,19 @@ export class StreamsService implements OnModuleDestroy {
         'Stream contract is not configured',
       );
     }
-    const balance = await this.funds.readBalance(sender.account);
+    const balance = await this.funds.readBalance(sender.account, body.token);
     const client = createPublicClient({
       transport: http(process.env.RPC_URL, { timeout: 5000 }),
     });
     try {
-      const token = await client.readContract({
+      const supported = await client.readContract({
         address: streamAddress,
         abi: streamAbi,
-        functionName: 'token',
+        functionName: 'supportedTokens',
+        args: [balance.token],
         blockNumber: BigInt(balance.blockNumber),
       });
-      if (token.toLowerCase() !== balance.token.toLowerCase())
-        throw new Error('Wrong stream token');
+      if (!supported) throw new Error('Wrong stream token');
     } catch {
       throw new ServiceUnavailableException('Stream contract is unavailable');
     }
@@ -331,6 +335,7 @@ export class StreamsService implements OnModuleDestroy {
         abi: streamAbi,
         functionName: 'create',
         args: [
+          intent.tokenAddress as Address,
           intent.recipientAddress as Address,
           BigInt(intent.amountUnits.toString()),
           intent.durationSeconds,
@@ -372,6 +377,7 @@ export class StreamsService implements OnModuleDestroy {
           log.address.toLowerCase() === intent.streamAddress &&
           log.args.sender?.toLowerCase() === intent.payerAddress &&
           log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+          log.args.token?.toLowerCase() === intent.tokenAddress &&
           log.args.deposit === BigInt(intent.amountUnits.toString()) &&
           BigInt(log.args.end) - BigInt(log.args.start) ===
             BigInt(intent.durationSeconds!.toString()),
@@ -441,17 +447,18 @@ export class StreamsService implements OnModuleDestroy {
       if (
         stream[0].toLowerCase() !== intent.payerAddress ||
         stream[1].toLowerCase() !== intent.recipientAddress ||
-        stream[2] !== BigInt(intent.amountUnits.toString()) ||
-        BigInt(stream[6]) - BigInt(stream[5]) !==
+        stream[2].toLowerCase() !== intent.tokenAddress ||
+        stream[3] !== BigInt(intent.amountUnits.toString()) ||
+        BigInt(stream[7]) - BigInt(stream[6]) !==
           BigInt(intent.durationSeconds.toString())
       )
         throw new Error('Stream state mismatch');
       return {
-        start: stream[5].toString(),
-        end: stream[6].toString(),
-        withdrawnUnits: stream[3].toString(),
-        canceled: stream[7],
-        recipientEntitlementUnits: stream[7] ? stream[4].toString() : null,
+        start: stream[6].toString(),
+        end: stream[7].toString(),
+        withdrawnUnits: stream[4].toString(),
+        canceled: stream[8],
+        recipientEntitlementUnits: stream[8] ? stream[5].toString() : null,
         withdrawableUnits: withdrawable.toString(),
         blockNumber: block.number.toString(),
         blockTimestamp: block.timestamp.toString(),
@@ -696,6 +703,7 @@ export class StreamsService implements OnModuleDestroy {
             log.args.streamId === streamId &&
             log.args.sender?.toLowerCase() === intent.payerAddress &&
             log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+            log.args.token?.toLowerCase() === intent.tokenAddress &&
             log.args.amount > 0n,
         );
         const transferred = event
@@ -729,7 +737,8 @@ export class StreamsService implements OnModuleDestroy {
           log.address.toLowerCase() === intent.streamAddress &&
           log.args.streamId === streamId &&
           log.args.sender?.toLowerCase() === intent.payerAddress &&
-          log.args.recipient?.toLowerCase() === intent.recipientAddress,
+          log.args.recipient?.toLowerCase() === intent.recipientAddress &&
+          log.args.token?.toLowerCase() === intent.tokenAddress,
       );
       const refunded =
         event?.args.senderRefund === 0n ||
