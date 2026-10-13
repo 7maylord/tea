@@ -16,6 +16,7 @@ import {
 import { createHash } from 'node:crypto';
 import { encodeFunctionData, type Address } from 'viem';
 import tokenAbiJson from '../abi/TestUSD.json';
+import { notifySplitParticipant } from '../email/notifications';
 import { FundsService } from '../funds/funds.service';
 import { SessionService } from '../identity/session.service';
 import { upsertThread } from '../payments/thread';
@@ -52,6 +53,14 @@ export class SplitsService implements OnModuleDestroy {
 
   async onModuleDestroy() {
     await this.db.$disconnect();
+  }
+
+  private async notifyParticipants(split: any) {
+    await Promise.allSettled(
+      split.obligations.map((obligation: any) =>
+        notifySplitParticipant(this.db, obligation.id),
+      ),
+    );
   }
 
   private presentPayment(
@@ -172,6 +181,7 @@ export class SplitsService implements OnModuleDestroy {
     if (existing) {
       if (existing.requestHash !== requestHash)
         throw new ConflictException('Idempotency-Key already used');
+      await this.notifyParticipants(existing);
       return this.presentSplit(existing);
     }
     const balance = await this.funds.readBalance(organizer.account);
@@ -244,6 +254,7 @@ export class SplitsService implements OnModuleDestroy {
         },
       },
     });
+    await this.notifyParticipants(loaded);
     return this.presentSplit(loaded);
   }
 

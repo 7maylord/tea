@@ -31,6 +31,7 @@ import {
 import streamAbiJson from '../abi/TeaStream.json';
 import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
+import { notifyPaymentRecipient } from '../email/notifications';
 import { upsertThread } from '../payments/thread';
 import { SessionService } from '../identity/session.service';
 
@@ -940,7 +941,9 @@ export class StreamsService implements OnModuleDestroy {
         throw new ConflictException('Idempotency-Key already used');
       if (prior.txHash !== hash)
         throw new ConflictException('Stream already submitted');
-      return this.get(identityToken, id);
+      const current = await this.get(identityToken, id);
+      await notifyPaymentRecipient(this.db, id).catch(() => undefined);
+      return current;
     }
     const observed = await this.observe(intent, hash);
     try {
@@ -983,6 +986,8 @@ export class StreamsService implements OnModuleDestroy {
         }
         return { intent: updated, attempt };
       });
+      if (saved.intent.state === 'CONFIRMED')
+        await notifyPaymentRecipient(this.db, id).catch(() => undefined);
       return this.present(saved.intent, saved.attempt);
     } catch (error) {
       if (

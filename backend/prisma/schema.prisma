@@ -96,6 +96,7 @@ model PaymentIntent {
   idempotencyKey         String?              @db.VarChar(128)
   requestHash            String               @db.Char(64)
   authorizationExpiresAt DateTime             @db.Timestamptz(6)
+  recipientNotifiedAt    DateTime?            @db.Timestamptz(6)
   createdAt              DateTime             @default(now()) @db.Timestamptz(6)
   updatedAt              DateTime             @updatedAt @db.Timestamptz(6)
   payer                  User                 @relation("OutgoingPayments", fields: [payerId], references: [id], onDelete: Restrict)
@@ -332,6 +333,7 @@ model SplitObligation {
   amountUnits       Decimal        @db.Decimal(78, 0)
   state             String         @db.VarChar(32)
   paymentIntentId   String?        @unique @db.Uuid
+  notifiedAt        DateTime?      @db.Timestamptz(6)
   createdAt         DateTime       @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime       @updatedAt @db.Timestamptz(6)
   split             Split          @relation(fields: [splitId], references: [id], onDelete: Restrict)

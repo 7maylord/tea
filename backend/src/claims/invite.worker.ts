@@ -7,6 +7,8 @@ import {
   type Hex,
 } from 'viem';
 import escrowAbiJson from '../abi/TeaClaimEscrow.json';
+import { formatTeaAmount, sendTeaEmail } from '../email/tea-email';
+import { processPendingNotifications } from '../email/notifications';
 import { decryptIdentity, readIdentityKey } from '../identity/identity.crypto';
 import { processNextClaimRefund } from './refund.worker';
 import { processNextClaimRelay } from './relay.worker';
@@ -47,6 +49,7 @@ export async function processNextClaimInvite(
   try {
     const claim = await db.claim.findUniqueOrThrow({
       where: { id: job.claimId },
+      include: { payer: { select: { handle: true } } },
     });
     const rpcUrl = process.env.RPC_URL;
     if (!rpcUrl) throw new Error('RPC unavailable');
@@ -84,10 +87,8 @@ export async function processNextClaimInvite(
     }
     if (claim.state !== 'OPEN' || onchain[4] !== 1)
       throw new Error('Claim is not ready');
-    const emailKey = process.env.EMAIL_PROVIDER_KEY;
-    const from = process.env.EMAIL_FROM;
     const appOrigin = process.env.APP_ORIGIN;
-    if (!emailKey || !from || !appOrigin) throw new Error('Email unavailable');
+    if (!appOrigin) throw new Error('Email unavailable');
     const encryptionKey = readIdentityKey(process.env.IDENTITY_ENCRYPTION_KEY);
     const email = decryptIdentity(claim.encryptedRecipientEmail, encryptionKey);
     const inviteToken = decryptIdentity(
@@ -98,22 +99,20 @@ export async function processNextClaimInvite(
       `/claim/${encodeURIComponent(inviteToken)}`,
       appOrigin,
     ).toString();
-    const response = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${emailKey}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': job.dedupeKey,
-      },
-      body: JSON.stringify({
-        from,
-        to: [email],
-        subject: 'You have a TEA payment',
-        text: `Open your TEA invitation: ${link}\nSign in with this email to view and claim it.`,
-      }),
-      signal: AbortSignal.timeout(10_000),
+    const sender = claim.payer.handle ? `@${claim.payer.handle}` : 'A friend';
+    await sendTeaEmail({
+      to: email,
+      subject: `${sender} sent you a payment on TEA`,
+      preheader: `${formatTeaAmount(BigInt(claim.amountUnits.toString()))} is waiting for you.`,
+      eyebrow: 'A TEA payment',
+      heading: 'A little something arrived.',
+      body: `${sender} sent you a payment. Verify this email and collect it securely with your TEA passkey.`,
+      amount: formatTeaAmount(BigInt(claim.amountUnits.toString())),
+      detail: `Claim it before ${claim.expiry?.toUTCString() ?? 'the invitation expires'}.`,
+      ctaLabel: 'Collect payment',
+      ctaUrl: link,
+      idempotencyKey: job.dedupeKey,
     });
-    if (!response.ok) throw new Error('Email provider unavailable');
     await db.outboxJob.updateMany({
       where: { id: job.id, state: 'PROCESSING', leaseUntil },
       data: { state: 'SENT', leaseUntil: null },
@@ -137,12 +136,13 @@ export async function runClaimWorker(signal?: AbortSignal) {
   const db = new PrismaClient();
   try {
     while (!signal?.aborted) {
-      const [invite, refund, relay] = await Promise.all([
+      const [invite, refund, relay, notification] = await Promise.all([
         processNextClaimInvite(db),
         processNextClaimRefund(db),
         processNextClaimRelay(db),
+        processPendingNotifications(db),
       ]);
-      if (!invite && !refund && !relay) await delay(2_000);
+      if (!invite && !refund && !relay && !notification) await delay(2_000);
     }
   } finally {
     await db.$disconnect();

@@ -31,6 +31,7 @@ import {
 import dateUnlockAbiJson from '../abi/TeaDateUnlock.json';
 import tokenAbiJson from '../abi/TestUSD.json';
 import { FundsService } from '../funds/funds.service';
+import { notifyPaymentRecipient } from '../email/notifications';
 import { SessionService } from '../identity/session.service';
 import { upsertThread } from '../payments/thread';
 
@@ -929,7 +930,9 @@ export class DateLocksService implements OnModuleDestroy {
       }
       if (prior.txHash !== hash)
         throw new ConflictException('Date lock already submitted');
-      return this.get(identityToken, id);
+      const current = await this.get(identityToken, id);
+      await notifyPaymentRecipient(this.db, id).catch(() => undefined);
+      return current;
     }
     const observed = await this.observe(intent, hash);
     try {
@@ -972,6 +975,8 @@ export class DateLocksService implements OnModuleDestroy {
         }
         return { intent: updated, attempt };
       });
+      if (saved.intent.state === 'CONFIRMED')
+        await notifyPaymentRecipient(this.db, id).catch(() => undefined);
       return this.present(saved.intent, saved.attempt);
     } catch (error) {
       if (
