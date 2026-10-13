@@ -25,18 +25,18 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 
 ## Deployed Monad testnet contracts
 
-| Contract | Address |
-| --- | --- |
-| TestUSD (TUSD) | `0x82cE012544F85E33930C5272bdeAE76736A8F22b` |
-| Agora AUSD | `0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC` |
-| Agora AUSD Faucet | `0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C` |
-| TeaStream | `0x38977cF2979F5040B5Cc660812e1faF802e15AdC` |
-| TeaClaimEscrow | `0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA` |
-| TeaDateUnlock | `0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9` |
+| Contract | Address | Source |
+| --- | --- | --- |
+| TestUSD (TUSD) | [`0x82cE…F22b`](https://testnet.monadvision.com/address/0x82cE012544F85E33930C5272bdeAE76736A8F22b) | Test token |
+| Agora AUSD | [`0xa901…22dC`](https://testnet.monadvision.com/address/0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC) | Agora deployment |
+| Agora AUSD Faucet | [`0xd236…ee6C`](https://testnet.monadvision.com/address/0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C) | Agora deployment |
+| TeaStream | [`0x3897…5AdC`](https://testnet.monadvision.com/address/0x38977cF2979F5040B5Cc660812e1faF802e15AdC) | [Verified](https://sourcify-api-monad.blockvision.org/v2/contract/10143/0x38977cF2979F5040B5Cc660812e1faF802e15AdC) |
+| TeaClaimEscrow | [`0x2cb5…86fA`](https://testnet.monadvision.com/address/0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA) | [Exact match](https://sourcify-api-monad.blockvision.org/v2/contract/10143/0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA) |
+| TeaDateUnlock | [`0x73A8…A9b9`](https://testnet.monadvision.com/address/0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9) | [Exact match](https://sourcify-api-monad.blockvision.org/v2/contract/10143/0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9) |
 
 Chain ID: `10143`. The multi-token deployment starts at block `70763435`; Envio indexes TUSD and AUSD transfers plus TEA lifecycle events from that block.
 
-The deployment owner can add a future ERC-20 without redeploying by calling `setTokenSupported(token, true)` on TeaStream, TeaClaimEscrow, and TeaDateUnlock, then adding the address to `SETTLEMENT_TOKENS`.
+The deployment owner can add a future ERC-20 without redeploying by calling `setTokenSupported(token, true)` on TeaStream, TeaClaimEscrow, and TeaDateUnlock, then adding the address to `SETTLEMENT_TOKENS` and the indexer configuration. Removing support blocks new deposits but does not prevent existing obligations from settling. See [`contracts/README.md`](contracts/README.md) for exact commands.
 
 ## Repo layout
 
@@ -138,12 +138,26 @@ NEXT_PUBLIC_AURORA_INTENTS_API_KEY
 NEXT_PUBLIC_RPC_URL
 ```
 
+For the current deployment, Railway must use:
+
+```text
+SETTLEMENT_TOKEN=0x82cE012544F85E33930C5272bdeAE76736A8F22b
+SETTLEMENT_TOKENS=0x82cE012544F85E33930C5272bdeAE76736A8F22b,0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC
+AUSD_TOKEN=0xa9012a055bd4e0eDfF8Ce09f960291C09D5322dC
+AUSD_FAUCET_ADDRESS=0xd236c18D274E54FAccC3dd9DDA4b27965a73ee6C
+TEA_STREAM_ADDRESS=0x38977cF2979F5040B5Cc660812e1faF802e15AdC
+CLAIM_ESCROW_ADDRESS=0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA
+TEA_DATE_UNLOCK_ADDRESS=0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9
+```
+
+Vercel must use the same three TEA addresses through `NEXT_PUBLIC_TEA_STREAM_ADDRESS`, `NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS`, and `NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS`. Next.js embeds these values during the build, so redeploy the frontend after changing them.
+
 
 ## Contracts
 
-- **`TeaClaimEscrow`** — email-claim deposits, EIP-712 authorization, recipient acceptance, payer refund after expiry.
-- **`TeaStream`** — funded linear streams with recipient withdrawal and sender cancellation.
-- **`TeaDateUnlock`** — funded date locks with recipient withdrawal after unlock.
+- **`TeaClaimEscrow`** — multi-token email-claim deposits, EIP-712 authorization, recipient acceptance, payer refund after expiry.
+- **`TeaStream`** — multi-token funded linear streams with recipient withdrawal and sender cancellation.
+- **`TeaDateUnlock`** — multi-token funded date locks with recipient withdrawal after unlock.
 - **`TestUSD`** — test settlement token for Monad testnet.
 
 Useful checks:
@@ -162,11 +176,13 @@ Main endpoints:
 - `POST /v1/session/sync`
 - `POST /v1/me/handle`
 - `POST /v1/resolve`
+- `GET /v1/balances`
 - `POST /v1/payments`
 - `POST /v1/claims`
 - `POST /v1/streams`
 - `POST /v1/date-locks`
 - `POST /v1/splits`
+- `POST /v1/faucet/claim`
 - `GET /v1/activity`
 - `GET /v1/threads`
 
@@ -176,7 +192,7 @@ Email payments are deposited into `TeaClaimEscrow`. The backend sends the recipi
 
 ## Optional Envio bounty indexer
 
-The app does not require an Envio API URL. The backend verifies submitted transaction receipts directly against Monad RPC before confirming activity. The `indexer/` folder is kept as a standalone Envio HyperIndex deployment for Metropolis judging and the Envio bounty. Per the Metropolis note, development-plan indexers older than 30 days are deprecated, so create or redeploy the Envio Cloud deployment on or after September 27 for judging.
+The app does not require an Envio API URL. The backend verifies submitted transaction receipts directly against Monad RPC before confirming activity. The `indexer/` folder is a standalone Envio HyperIndex deployment for public analytics and the Metropolis bounty. Envio development-plan indexers may be deprecated after 30 days, so redeploy an older instance before judging.
 
 ```sh
 cd indexer

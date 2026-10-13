@@ -1,10 +1,31 @@
 # TEA event indexer
 
-Envio HyperIndex 3 indexes the Monad testnet settlement token, TeaStream, TeaClaimEscrow and TeaDateUnlock events into `ChainEvent`. Each row is keyed by chain ID, transaction hash and log index; Envio handles chain reorg rollback. The indexer contains only public onchain data. TEA's backend no longer consumes this indexer at runtime; it verifies submitted receipts through Monad RPC. This indexer is kept as a standalone Metropolis Envio bounty deployment.
+This standalone Envio HyperIndex deployment indexes TEA's public Monad testnet activity. The application backend does not depend on its GraphQL endpoint; it verifies submitted receipts directly through Monad RPC. The indexer remains useful for public analytics and the Metropolis Envio bounty.
 
-From this folder:
+## Indexed deployment
+
+- chain ID: `10143`
+- start block: `70763435`
+- settlement tokens: TUSD and Agora AUSD
+- TeaStream: `0x38977cF2979F5040B5Cc660812e1faF802e15AdC`
+- TeaClaimEscrow: `0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA`
+- TeaDateUnlock: `0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9`
+
+`ChainEvent` rows are keyed by chain ID, transaction hash, and log index. Each lifecycle event stores the settlement token address, participants, amount, block information, and the relevant stream, claim, or lock identifier. Envio handles rollback during chain reorganizations.
+
+The configuration subscribes to:
+
+- ERC-20 `Transfer` for TUSD and AUSD
+- `StreamCreated`, `StreamWithdrawn`, and `StreamCanceled`
+- `ClaimDeposited`, `ClaimPaid`, and `ClaimRefunded`
+- `LockCreated` and `LockWithdrawn`
+
+The public Monad RPC caps log ranges at 100 blocks, so `config.yaml` sets both the initial interval and ceiling to 100.
+
+## Local development
 
 ```sh
+cd indexer
 cp .env.example .env
 pnpm install
 pnpm codegen
@@ -12,12 +33,17 @@ pnpm check
 pnpm dev
 ```
 
-The example sets `ENVIO_PG_PORT=55433` so Envio starts its own Postgres container instead of attaching to another local database on its default port 5433. Adjust the port if 55433 is occupied. The local GraphQL endpoint is `http://127.0.0.1:8080/v1/graphql`; Envio's local Hasura admin secret is `testing`. Keep the Hasura secret on the backend and do not call GraphQL directly from the frontend for private views.
+The example uses port `55433` for Envio's Postgres container. The local GraphQL endpoint is `http://127.0.0.1:8080/v1/graphql`, and the local Hasura admin secret is `testing`.
 
-The config is pinned to the Monad testnet deployment in the repository root README, starting at block 70763435. The Monad public RPC currently limits `eth_getLogs` ranges to 100 blocks, so the RPC interval is capped at 100. These deployment values are public onchain config; edit `config.yaml` if the deployment changes.
+## Deployment maintenance
 
-For Metropolis judging, create or redeploy the Envio Cloud deployment on or after September 27. The Metropolis note says development-plan indexers are automatically deprecated once they are more than 30 days old.
+The RPC URL, addresses, and start block in `config.yaml` are public chain configuration and do not require deployment secrets. When adding another settlement token, add its address to the `SettlementToken` address list. When replacing a TEA contract, update its address and choose a start block at or before the deployment block, then run:
 
-Envio's [configuration](https://docs.envio.dev/docs/HyperIndex/configuration-file), [event handler](https://docs.envio.dev/docs/HyperIndex/event-handlers) guides describe this configuration.
+```sh
+pnpm codegen
+pnpm check
+```
 
-Date locks emit `LOCK_CREATED` with `lockId`, sender, recipient, amount and `unlockAt`, and `LOCK_WITHDRAWN` with the full paid amount. These are public lifecycle rows for judging and bounty evidence.
+Deploy or redeploy the generated indexer through Envio Cloud when a fresh judging deployment is required. Envio development-plan deployments may be deprecated after 30 days.
+
+See Envio's [configuration](https://docs.envio.dev/docs/HyperIndex/configuration-file) and [event handler](https://docs.envio.dev/docs/HyperIndex/event-handlers) documentation.

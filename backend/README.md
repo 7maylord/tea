@@ -1,98 +1,81 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# TEA backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+The NestJS backend authenticates Privy sessions, binds Mera payment accounts, resolves handles and verified email recipients, prepares transaction plans, verifies Monad receipts, records private activity, sends transactional email, and runs the TUSD/AUSD test faucet.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Production API: <https://usetea.up.railway.app/>
 
-## Description
+## Local setup
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Start the repository's Postgres and Redis services first:
 
-## Project setup
-
-```bash
-$ pnpm install
+```sh
+./scripts/docker-local.sh up -d --wait
 ```
 
-## Compile and run the project
+Then configure and start the API:
 
-```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+```sh
+cd backend
+cp .env.example .env
+pnpm install
+pnpm db:generate
+pnpm db:migrate
+pnpm start:dev
 ```
 
-## Run tests
+The API listens on `http://127.0.0.1:3001`. Check it with:
 
-```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+```sh
+curl http://127.0.0.1:3001/health/live
 ```
 
-## Deployment
+## Required configuration
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Use `backend/.env` locally and Railway variables in production. The complete template is `.env.example`; the main groups are:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+- application origins: `APP_ORIGIN`, `API_ORIGIN`
+- Monad: `CHAIN_ID`, `RPC_URL`, `SETTLEMENT_TOKEN`, `SETTLEMENT_TOKENS`
+- deployed contracts: `CLAIM_ESCROW_ADDRESS`, `TEA_STREAM_ADDRESS`, `TEA_DATE_UNLOCK_ADDRESS`
+- Agora faucet: `AUSD_TOKEN`, `AUSD_FAUCET_ADDRESS`
+- storage: `DATABASE_URL`, `REDIS_URL`
+- authentication: `PRIVY_APP_ID`, `PRIVY_APP_SECRET`
+- protected identity data: `IDENTITY_LOOKUP_HMAC_KEY`, `IDENTITY_ENCRYPTION_KEY`
+- transaction services: `CLAIM_IDENTITY_SIGNER_PRIVATE_KEY`, `RELAYER_PRIVATE_KEY`, `FAUCET_PRIVATE_KEY`
+- email: `EMAIL_PROVIDER_KEY`, `EMAIL_FROM`, and optional `EMAIL_REPLY_TO`
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+`SETTLEMENT_TOKENS` is a comma-separated list of token addresses. It currently contains TUSD and Agora AUSD. Token symbols and decimals are read from the chain; the server rejects requests for addresses outside this list.
+
+The production image runs `prisma migrate deploy` before starting the API, so `DATABASE_URL` must point to a reachable Postgres database. `REDIS_URL` is required for recipient references, rate limits, and job coordination.
+
+## API groups
+
+- `/v1/session` and `/v1/me` — session synchronization, Mera account binding, and handles
+- `/v1/resolve` — private handle/email recipient resolution
+- `/v1/balances` — balances for every configured settlement token
+- `/v1/payments` — direct ERC-20 payment intents and receipt verification
+- `/v1/claims` — email escrow deposit, invitation, claim, resend, and refund flows
+- `/v1/streams` — funded stream creation, withdrawal, and cancellation
+- `/v1/date-locks` — funded date-lock creation and withdrawal
+- `/v1/splits` — offchain split requests settled with direct ERC-20 payments
+- `/v1/faucet` — daily token and MON testnet funding
+- `/v1/activity` and `/v1/threads` — private application activity
+
+Money-changing operations require a Privy token and an `Idempotency-Key`. The backend returns exact calldata plans, and the frontend checks the chain, contract, token, recipient, and amount before Mera signs. A payment is recorded as confirmed only after its receipt and emitted events match the stored intent.
+
+Email notifications are sent immediately after confirmed email claims, streams, date locks, and split requests. Delivery uses Resend through `EMAIL_PROVIDER_KEY` and a verified `EMAIL_FROM` domain.
+
+## Checks
+
+```sh
+pnpm lint:check
+pnpm exec prisma validate
+pnpm build
+pnpm test
+pnpm test:db
+pnpm test:e2e
+pnpm test:resolve
+pnpm check:network
+pnpm check:claims
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Database and integration checks require the local Postgres and Redis containers. Network and claim checks read the deployed Monad contracts configured in `.env`.
