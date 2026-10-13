@@ -86,7 +86,8 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
         sessionStorage.removeItem(storageKey);
         setSaved(null);
         setDone(true);
-        toast.success("Payment deposited. The email invitation is queued.", { id: `email-payment:${userId}` });
+        if (claim.inviteSent) toast.success("Invite sent.", { id: `email-payment:${userId}` });
+        else toast.error("Payment deposited, but the invite could not be sent. Retry from Activity.", { id: `email-payment:${userId}` });
         onSettled();
       }
     } catch {
@@ -168,7 +169,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       <p className="text-sm text-stone-500">Recipient</p><p className="mt-1 break-all font-semibold">{email}</p>
       <p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), balance.decimals)} {balance.symbol}</p>
       <p className="mt-5 text-sm leading-6 text-stone-600">The full amount is locked for 14 days. The recipient must verify this email to collect it. After expiry, unclaimed funds return to you.</p>
-      {done ? <p className="mt-6 font-semibold text-emerald-800">Deposit confirmed. The invitation is queued.</p>
+      {done ? null
         : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve escrow deposit"}</button>
         : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
         : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div>

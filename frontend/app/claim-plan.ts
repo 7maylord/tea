@@ -14,6 +14,7 @@ export type ClaimIntent = {
   token: string;
   payer: string;
   amountUnits: string;
+  inviteSent?: boolean;
   plan: {
     approve: { chainId: number; from: string; to: string; value: string; data: Hex };
     deposit: { chainId: number; from: string; to: string; value: string; data: Hex };

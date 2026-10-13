@@ -42,6 +42,7 @@ import {
   claimAuthorizationDigest,
   claimAuthorizationTypedData,
 } from './claim.typed-data';
+import { processNextClaimInvite } from './invite.worker';
 
 const escrowAbi = escrowAbiJson as any;
 const tokenAbi = tokenAbiJson as any;
@@ -559,6 +560,20 @@ export class ClaimsService implements OnModuleDestroy {
     });
   }
 
+  private async presentDeposit(claim: Claim) {
+    if (claim.state !== 'OPEN') return this.present(claim);
+    try {
+      await processNextClaimInvite(this.db, claim.id);
+      const invite = await this.db.outboxJob.findUnique({
+        where: { dedupeKey: `claim-invite:${claim.id}` },
+        select: { state: true },
+      });
+      return { ...this.present(claim), inviteSent: invite?.state === 'SENT' };
+    } catch {
+      return { ...this.present(claim), inviteSent: false };
+    }
+  }
+
   async registerDeposit(
     identityToken: string | undefined,
     id: string,
@@ -597,7 +612,7 @@ export class ClaimsService implements OnModuleDestroy {
       throw new ConflictException('Idempotency-Key already used');
     }
     if (claim.depositTxHash === hash)
-      return this.present(await this.refreshDeposit(claim));
+      return this.presentDeposit(await this.refreshDeposit(claim));
     if (claim.depositTxHash && claim.state !== 'FAILED') {
       throw new ConflictException('Claim deposit already submitted');
     }
@@ -645,7 +660,7 @@ export class ClaimsService implements OnModuleDestroy {
         }
         return saved;
       });
-      return this.present(updated);
+      return this.presentDeposit(updated);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&

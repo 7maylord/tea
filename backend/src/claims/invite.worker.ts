@@ -16,11 +16,13 @@ const createPublicClient = createPublicClientBase as any;
 
 export async function processNextClaimInvite(
   db: PrismaClient,
+  claimId?: string,
 ): Promise<boolean> {
   const now = new Date();
   const job = await db.outboxJob.findFirst({
     where: {
       kind: 'CLAIM_INVITE',
+      ...(claimId ? { claimId } : {}),
       OR: [
         { state: 'PENDING', nextAttemptAt: { lte: now } },
         { state: 'PROCESSING', leaseUntil: { lt: now } },

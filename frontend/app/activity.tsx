@@ -94,11 +94,11 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
     if (!online) { toast.error("Reconnect before updating this claim.", { id: toastId }); return; }
     if (!claim.claimId || claimAction) return;
     setClaimAction(claim.id);
-    toast.loading(action === "refund" ? "Requesting refund…" : "Queueing invitation…", { id: toastId });
+    toast.loading(action === "refund" ? "Requesting refund…" : "Sending invitation…", { id: toastId });
     try {
       const response = await fetch(`${apiOrigin}/v1/claims/${claim.claimId}/${action}`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() } });
       if (!response.ok) throw new Error(response.status === 429 ? "Wait before sending another invitation." : action === "refund" ? "This claim is not refundable yet." : "Could not resend this invitation.");
-      toast.success(action === "refund" ? "Refund queued. Activity will update after chain confirmation." : "Invitation queued for delivery.", { id: toastId });
+      toast.success(action === "refund" ? "Refund requested. Activity will update after confirmation." : "Invite sent.", { id: toastId });
       await refresh();
     } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not update this claim.", { id: toastId }); }
     finally { setClaimAction(null); }
