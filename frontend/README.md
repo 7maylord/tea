@@ -20,14 +20,10 @@ Open <http://127.0.0.1:3000>. Required public configuration:
 - `NEXT_PUBLIC_PRIVY_APP_ID`
 - `NEXT_PUBLIC_API_ORIGIN`
 - `NEXT_PUBLIC_CHAIN_ID`
-- `NEXT_PUBLIC_SETTLEMENT_TOKEN`
-- `NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS`
-- `NEXT_PUBLIC_TEA_STREAM_ADDRESS`
-- `NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS`
 - `NEXT_PUBLIC_RPC_URL`
 - `NEXT_PUBLIC_AURORA_INTENTS_API_KEY` for Aurora top-ups
 
-These values are embedded at build time. Update the Vercel project variables and redeploy after changing a public contract address or API origin.
+These values are embedded at build time. Update the Vercel project variables and redeploy after changing one of them. Contract addresses and supported tokens come from backend transaction plans and balance responses.
 
 ## Payment flow
 

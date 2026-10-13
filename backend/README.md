@@ -33,7 +33,7 @@ curl http://127.0.0.1:3001/health/live
 
 Use `backend/.env` locally and Railway variables in production. The complete template is `.env.example`; the main groups are:
 
-- application origins: `APP_ORIGIN`, `API_ORIGIN`
+- application: `PORT`, `APP_ORIGIN`
 - Monad: `CHAIN_ID`, `RPC_URL`, `SETTLEMENT_TOKEN`, `SETTLEMENT_TOKENS`
 - deployed contracts: `CLAIM_ESCROW_ADDRESS`, `TEA_STREAM_ADDRESS`, `TEA_DATE_UNLOCK_ADDRESS`
 - Agora faucet: `AUSD_TOKEN`, `AUSD_FAUCET_ADDRESS`

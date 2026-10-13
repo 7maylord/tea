@@ -113,7 +113,7 @@ curl http://127.0.0.1:3001/health/live
 Backend env lives in `backend/.env` locally and platform env vars in production:
 
 ```text
-APP_ENV, PORT, APP_ORIGIN, API_ORIGIN
+PORT, APP_ORIGIN
 CHAIN_ID, RPC_URL, SETTLEMENT_TOKEN, SETTLEMENT_TOKENS, SETTLEMENT_TOKEN_DECIMALS
 AUSD_TOKEN, AUSD_FAUCET_ADDRESS
 CLAIM_ESCROW_ADDRESS, TEA_STREAM_ADDRESS, TEA_DATE_UNLOCK_ADDRESS
@@ -130,10 +130,6 @@ Frontend public env:
 NEXT_PUBLIC_PRIVY_APP_ID
 NEXT_PUBLIC_API_ORIGIN
 NEXT_PUBLIC_CHAIN_ID
-NEXT_PUBLIC_SETTLEMENT_TOKEN
-NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS
-NEXT_PUBLIC_TEA_STREAM_ADDRESS
-NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS
 NEXT_PUBLIC_AURORA_INTENTS_API_KEY
 NEXT_PUBLIC_RPC_URL
 ```
@@ -150,7 +146,7 @@ CLAIM_ESCROW_ADDRESS=0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA
 TEA_DATE_UNLOCK_ADDRESS=0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9
 ```
 
-Vercel must use the same three TEA addresses through `NEXT_PUBLIC_TEA_STREAM_ADDRESS`, `NEXT_PUBLIC_CLAIM_ESCROW_ADDRESS`, and `NEXT_PUBLIC_TEA_DATE_UNLOCK_ADDRESS`. Next.js embeds these values during the build, so redeploy the frontend after changing them.
+The frontend receives contract addresses and supported-token metadata from authenticated backend responses, so Vercel does not need separate contract-address variables.
 
 
 ## Contracts
