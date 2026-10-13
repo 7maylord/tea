@@ -197,16 +197,40 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
 
   async function claimFaucet() {
     setFaucetBusy(true);
-    toast.loading('Claiming test funds…', { id: 'faucet' });
+    toast.loading('Claiming MON, TUSD, and AUSD…', { id: 'faucet' });
     try {
-      const response = await fetch(`${apiOrigin}/v1/faucet/claim`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...await authHeaders() },
-        body: JSON.stringify({ token: visibleBalance?.token }),
-      });
-      if (response.status === 409) throw new Error('You already claimed today.');
-      if (!response.ok) throw new Error('Could not claim test funds. Try again.');
-      toast.success(`10,000 ${visibleBalance?.symbol ?? 'tokens'} claimed.`, { id: 'faucet' });
+      const headers = { 'Content-Type': 'application/json', ...await authHeaders() };
+      const claims = [
+        { label: 'MON', path: 'gas', token: undefined },
+        ...visibleBalances
+          .filter((balance) => balance.symbol === 'TUSD' || balance.symbol === 'AUSD')
+          .map((balance) => ({ label: balance.symbol, path: 'claim', token: balance.token })),
+      ];
+      const claimed: string[] = [];
+      const alreadyClaimed: string[] = [];
+      const failed: string[] = [];
+
+      for (const claim of claims) {
+        try {
+          const response = await fetch(`${apiOrigin}/v1/faucet/${claim.path}`, {
+            method: 'POST',
+            headers,
+            body: claim.token ? JSON.stringify({ token: claim.token }) : undefined,
+          });
+          if (response.ok) claimed.push(claim.label);
+          else if (response.status === 409) alreadyClaimed.push(claim.label);
+          else failed.push(claim.label);
+        } catch {
+          failed.push(claim.label);
+        }
+      }
+
+      if (failed.length > 0) {
+        const completed = claimed.length > 0 ? ` Claimed: ${claimed.join(', ')}.` : '';
+        throw new Error(`Could not claim ${failed.join(', ')}.${completed}`);
+      }
+      const repeat = alreadyClaimed.length > 0 ? ` Already claimed today: ${alreadyClaimed.join(', ')}.` : '';
+      toast.success(`Test funds ready: ${claimed.join(', ') || 'no new funds'}.${repeat}`, { id: 'faucet' });
       setBalanceVersion((value) => value + 1);
     } catch (cause) {
       toast.error(cause instanceof Error ? cause.message : 'Could not claim test funds.', { id: 'faucet' });
@@ -271,7 +295,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="tea-balance-amount">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
                 <div className="tea-balance-actions">
                   <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
-                  <button type="button" disabled={faucetBusy || !online || !visibleBalance} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : `Claim 10,000 ${visibleBalance?.symbol ?? ''}`}</button>
+                  <button type="button" disabled={faucetBusy || !online || visibleBalances.length === 0} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : 'Claim test funds'}</button>
                 </div>
               </div>
               <button type="button" onClick={() => setView('send')} className="tea-send-action"><span><span className="tea-action-label">Make someone’s day</span>Send money</span><span className="tea-action-arrow" aria-hidden="true">↗</span></button>
