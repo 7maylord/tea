@@ -295,7 +295,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="tea-balance-amount">{visibleBalance ? `${formatAmount(visibleBalance.balanceUnits, visibleBalance.decimals)} ${visibleBalance.symbol}` : 'Checking…'}</p>
                 <div className="tea-balance-actions">
                   <button type="button" onClick={() => setBalanceVersion((value) => value + 1)} className="min-h-11 rounded-xl border border-stone-500 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">Refresh balance</button>
-                  <button type="button" disabled={faucetBusy || !online || visibleBalances.length === 0} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming…' : 'Claim test funds'}</button>
+                  <button type="button" disabled={faucetBusy || !online || visibleBalances.length === 0} onClick={() => void claimFaucet()} className="min-h-11 rounded-xl bg-white px-4 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">{faucetBusy ? 'Claiming all three…' : 'Claim TUSD + AUSD + MON'}</button>
                 </div>
               </div>
               <button type="button" onClick={() => setView('send')} className="tea-send-action"><span><span className="tea-action-label">Make someone’s day</span>Send money</span><span className="tea-action-arrow" aria-hidden="true">↗</span></button>
