@@ -131,17 +131,10 @@ export async function processNextClaimInvite(
   return true;
 }
 
-async function main() {
+export async function runClaimWorker(signal?: AbortSignal) {
   const db = new PrismaClient();
-  let stopping = false;
-  process.once('SIGINT', () => {
-    stopping = true;
-  });
-  process.once('SIGTERM', () => {
-    stopping = true;
-  });
   try {
-    while (!stopping) {
+    while (!signal?.aborted) {
       const [invite, refund, relay] = await Promise.all([
         processNextClaimInvite(db),
         processNextClaimRefund(db),
@@ -155,7 +148,10 @@ async function main() {
 }
 
 if (require.main === module) {
-  void main().catch(() => {
+  const controller = new AbortController();
+  process.once('SIGINT', () => controller.abort());
+  process.once('SIGTERM', () => controller.abort());
+  void runClaimWorker(controller.signal).catch(() => {
     process.exitCode = 1;
   });
 }

@@ -56,7 +56,7 @@ tea/
 | Contracts | Solidity, Foundry, OpenZeppelin |
 | Identity/wallet | Privy email auth + Mera passkey-derived payment account |
 | Indexing | Backend verifies submitted transactions through Monad RPC; optional Envio indexer is deployable for the Metropolis bounty |
-| Email | Resend |
+| Email | Resend, delivered by the backend claim worker |
 | Package management | pnpm, separate lockfiles per app |
 
 ## Local development
@@ -166,6 +166,8 @@ Main endpoints:
 - `GET /v1/threads`
 
 Money-changing endpoints require authentication, `Idempotency-Key`, and backend verification of the submitted transaction.
+
+Email payments are deposited into `TeaClaimEscrow`. The backend sends the recipient a private claim link after deposit confirmation; the recipient signs in with that same email and uses their TEA passkey to collect the funds. The production backend starts the claim worker automatically, so a separate worker service is not required.
 
 ## Optional Envio bounty indexer
 

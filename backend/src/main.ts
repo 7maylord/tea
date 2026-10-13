@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import type { NextFunction, Request, Response } from 'express';
+import { runClaimWorker } from './claims/invite.worker';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -17,5 +18,8 @@ async function bootstrap() {
     },
   );
   await app.listen(process.env.PORT ?? 3001);
+  void runClaimWorker().catch((cause) =>
+    console.error('Claim worker stopped', cause),
+  );
 }
 void bootstrap();
