@@ -11,7 +11,7 @@ type Target = {
 
 const targets: Target[] = [
   { label: "USDC", token: { symbol: "USDC", blockchain: "monad" } },
-  { label: "USDT0", token: { symbol: "USDT0", blockchain: "monad" } },
+  { label: "AUSD", token: { symbol: "AUSD", blockchain: "monad" } },
   { label: "MON", token: { symbol: "MON", blockchain: "monad" } },
 ];
 
@@ -65,7 +65,7 @@ export default function AuroraTopUp({ address }: { address: string }) {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">Top up</p>
           <h2 className="mt-1 text-xl font-semibold text-stone-950">Add funds</h2>
-          <p className="mt-2 text-sm leading-6 text-stone-600">Bridge USDC, USDT0, or MON to this TEA wallet.</p>
+          <p className="mt-2 text-sm leading-6 text-stone-600">Bridge USDC, AUSD, or MON to this TEA wallet.</p>
         </div>
         <button type="button" onClick={showWidget} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">
           Top up
