@@ -3,6 +3,7 @@
 import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
 import { waitForMeraReceipt } from "./mera";
@@ -36,7 +37,6 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   const [saved, setSaved] = useState<SavedClaim | null>(null);
   const [draft, setDraft] = useState<ClaimDraft | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [done, setDone] = useState(false);
   const storageKey = `tea:claim:${userId}`;
   const draftKey = `tea:claim-draft:${userId}`;
@@ -86,18 +86,21 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
         sessionStorage.removeItem(storageKey);
         setSaved(null);
         setDone(true);
-        setError("");
+        toast.success("Payment deposited. The email invitation is queued.", { id: `email-payment:${userId}` });
         onSettled();
       }
     } catch {
-      setError("The deposit was submitted. Confirmation is still being checked.");
+      toast.loading("Deposit submitted. Checking confirmation…", { id: `email-payment:${userId}` });
     }
-  }, [auth, onSettled, storageKey]);
+  }, [auth, onSettled, storageKey, userId]);
 
   useEffect(() => {
     if (!online || !saved) return;
     if (saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash) {
-      const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked.")), 0);
+      const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => {
+        save({ ...saved, stage: "READY_DEPOSIT" });
+        toast.success("Funding approved. Complete the deposit to send the invitation.", { id: `email-payment:${userId}` });
+      }).catch(() => toast.loading("Approval submitted. Checking confirmation…", { id: `email-payment:${userId}` })), 0);
       return () => window.clearTimeout(initial);
     }
     if (saved.stage === "DEPOSIT_SUBMITTED" && saved.depositHash) {
@@ -105,12 +108,12 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       const poll = window.setInterval(() => void reconcile(saved), 5000);
       return () => { window.clearTimeout(initial); window.clearInterval(poll); };
     }
-  }, [online, reconcile, save, saved, waitFor]);
+  }, [online, reconcile, save, saved, userId, waitFor]);
 
   async function approve() {
-    if (!online) { setError("Reconnect before approving this payment."); return; }
+    if (!online) { toast.error("Reconnect before approving this payment.", { id: `email-payment:${userId}` }); return; }
     setBusy(true);
-    setError("");
+    toast.loading("Confirm funding approval in your wallet…", { id: `email-payment:${userId}` });
     try {
       let record = saved?.stage === "APPROVAL_REQUESTED" ? saved : null;
       const claim = record ? await auth(`/v1/claims/${record.id}`) : await (async () => {
@@ -134,16 +137,17 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       save(submitted);
       await waitFor(sent.hash);
       save({ ...submitted, stage: "READY_DEPOSIT" });
+      toast.success("Funding approved. Complete the deposit to send the invitation.", { id: `email-payment:${userId}` });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not approve the escrow deposit.");
+      toast.error(cause instanceof Error ? cause.message : "Could not approve the escrow deposit.", { id: `email-payment:${userId}` });
     } finally { setBusy(false); }
   }
 
   async function deposit() {
-    if (!online) { setError("Reconnect before depositing this payment."); return; }
+    if (!online) { toast.error("Reconnect before depositing this payment.", { id: `email-payment:${userId}` }); return; }
     if (!saved || (saved.stage !== "READY_DEPOSIT" && saved.stage !== "DEPOSIT_REQUESTED")) return;
     setBusy(true);
-    setError("");
+    toast.loading("Confirm the escrow deposit in your wallet…", { id: `email-payment:${userId}` });
     try {
       const claim = await auth(`/v1/claims/${saved.id}`);
       const plan = checkedClaimPlan(claim, address, balance.token, chainId, saved.amountUnits);
@@ -153,7 +157,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       save(submitted);
       await reconcile(submitted);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not submit the escrow deposit.");
+      toast.error(cause instanceof Error ? cause.message : "Could not submit the escrow deposit.", { id: `email-payment:${userId}` });
     } finally { setBusy(false); }
   }
 
@@ -169,8 +173,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
         : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
         : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div>
         : saved.stage === "DEPOSIT_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Deposit was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-4 w-full`}>{busy ? "Depositing…" : "Retry deposit"}</button></div>
-        : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" disabled={!online} onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => setError("Approval is still being checked."))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check approval</button>}</div>}
+        : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" disabled={!online} onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => toast.loading("Approval submitted. Checking confirmation…", { id: `email-payment:${userId}` }))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check approval</button>}</div>}
     </div>
-    {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
   </>;
 }

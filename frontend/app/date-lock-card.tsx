@@ -3,6 +3,7 @@
 import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useOnlineStatus } from "./pwa";
 import { checkedDateLockAction, checkedStoredDateLockAction, type DateLockAction, type DateLockIntent, type SavedDateLockAction } from "./date-lock-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
@@ -21,7 +22,7 @@ export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { 
       return record;
     } catch { sessionStorage.removeItem(storageKey); return null; }
   });
-  const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const load = useCallback(async () => {
     const response = await fetch(`${apiOrigin}/v1/date-locks/${id}`, { headers: await authHeaders(), cache: "no-store" });
     if (response.ok) setLock(await response.json() as DateLockDetail);
@@ -37,10 +38,9 @@ export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { 
       });
       if (!response.ok) throw new Error("The transaction was submitted. Confirmation is still being checked.");
       const action = await response.json() as DateLockAction;
-      if (action.state === "CONFIRMED") { sessionStorage.removeItem(storageKey); setSaved(null); setError(""); await load(); }
-      else if (action.state === "FAILED") { sessionStorage.removeItem(storageKey); setSaved(null); setError("Transaction failed."); }
-      else setError("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "The transaction was submitted. Confirmation is still being checked."); }
+      if (action.state === "CONFIRMED") { sessionStorage.removeItem(storageKey); setSaved(null); toast.success("Date-locked funds collected.", { id: `date-lock-action:${id}` }); await load(); }
+      else if (action.state === "FAILED") { sessionStorage.removeItem(storageKey); setSaved(null); toast.error("Transaction failed.", { id: `date-lock-action:${id}` }); }
+    } catch (cause) { toast.loading(cause instanceof Error ? cause.message : "The transaction was submitted. Confirmation is still being checked.", { id: `date-lock-action:${id}` }); }
   }, [apiOrigin, id, load, online, storageKey]);
   useEffect(() => {
     if (!online) return;
@@ -55,9 +55,9 @@ export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { 
     return () => { window.clearTimeout(initial); window.clearInterval(poll); };
   }, [reconcile, saved]);
   async function collect() {
-    if (!online) { setError("Reconnect before collecting this date lock."); return; }
+    if (!online) { toast.error("Reconnect before collecting this date lock.", { id: `date-lock-action:${id}` }); return; }
     if (!lock?.dateLockId || saved) return;
-    setBusy(true); setError("");
+    setBusy(true); toast.loading("Confirm collection in your wallet…", { id: `date-lock-action:${id}` });
     try {
       const pending = { intentId: id, actionId: null, prepareKey: crypto.randomUUID(), submitKey: crypto.randomUUID(), stage: "PREPARING" as const };
       save(pending);
@@ -68,11 +68,11 @@ export default function DateLockCard({ id, apiOrigin, userId, decimals = 6 }: { 
       const sent = await sendWithSponsorFallback(userId, { to: plan.to as Hex, data: plan.data, value: BigInt(0), chainId: lock.chainId }, lock.recipient);
       const submitted = { ...pending, actionId: action.id, stage: "SUBMITTED" as const, hash: sent.hash };
       save(submitted); await reconcile(submitted);
-    } catch (cause) { sessionStorage.removeItem(storageKey); setSaved(null); setError(cause instanceof Error ? cause.message : "Date lock collection failed."); }
+    } catch (cause) { sessionStorage.removeItem(storageKey); setSaved(null); toast.error(cause instanceof Error ? cause.message : "Date lock collection failed.", { id: `date-lock-action:${id}` }); }
     finally { setBusy(false); }
   }
   if (!lock?.chainState) return <p role="status" className="mt-3 text-sm text-stone-600">Loading date-lock details…</p>;
   const unlocked = BigInt(lock.chainState.blockTimestamp) >= BigInt(lock.chainState.unlockAt);
   const canCollect = unlocked && !lock.chainState.withdrawn && BigInt(lock.chainState.withdrawableUnits) > BigInt(0);
-  return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Unlocks</p><p className="mt-1 font-semibold">{new Date(Number(lock.chainState.unlockAt) * 1000).toLocaleString()}</p></div><div><p className="text-xs text-stone-500">Available</p><p className="mt-1 font-semibold">{formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{lock.chainState.withdrawn ? "Collected" : unlocked ? "Ready to collect" : "Locked"} · checked at block {lock.chainState.blockNumber}</p><div className="mt-4">{saved?.stage === "PREPARING" ? <p role="status" className="text-sm text-stone-600">Preparing collection…</p> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" disabled={!online} onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button></div> : canCollect && <button type="button" disabled={busy || !online} onClick={() => void collect()} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</button>}</div>{error && <p role="alert" className="mt-3 text-sm text-red-800">{error}</p>}</div>;
+  return <div className="mt-4 rounded-xl bg-stone-50 p-4"><div className="grid grid-cols-2 gap-4"><div><p className="text-xs text-stone-500">Unlocks</p><p className="mt-1 font-semibold">{new Date(Number(lock.chainState.unlockAt) * 1000).toLocaleString()}</p></div><div><p className="text-xs text-stone-500">Available</p><p className="mt-1 font-semibold">{formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</p></div></div><p className="mt-3 text-xs text-stone-500">{lock.chainState.withdrawn ? "Collected" : unlocked ? "Ready to collect" : "Locked"} · checked at block {lock.chainState.blockNumber}</p><div className="mt-4">{saved?.stage === "PREPARING" ? <p role="status" className="text-sm text-stone-600">Preparing collection…</p> : saved?.stage === "SUBMITTED" ? <div><p role="status" className="text-sm text-stone-600">Checking transaction confirmation…</p><button type="button" disabled={!online} onClick={() => void reconcile(saved)} className="mt-3 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check status</button></div> : canCollect && <button type="button" disabled={busy || !online} onClick={() => void collect()} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50">Collect {formatUnits(BigInt(lock.chainState.withdrawableUnits), decimals)}</button>}</div></div>;
 }

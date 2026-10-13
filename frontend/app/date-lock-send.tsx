@@ -3,6 +3,7 @@
 import { authHeaders } from "./auth";
 import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { useOnlineStatus } from "./pwa";
 import { checkedDateLockPlan, type DateLockIntent } from "./date-lock-plan";
 import { sendWithSponsorFallback } from "./send-transaction";
@@ -19,7 +20,7 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
   const online = useOnlineStatus();
   const [saved, setSaved] = useState<Saved | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [busy, setBusy] = useState(false), [done, setDone] = useState(false), [error, setError] = useState("");
+  const [busy, setBusy] = useState(false), [done, setDone] = useState(false);
   const storageKey = `tea:date-lock:${userId}`;
   const draftKey = `tea:date-lock-draft:${userId}`;
   const api = useCallback(async (path: string, options: RequestInit = {}) => {
@@ -36,9 +37,9 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
     if (!record.createHash) return;
     try {
       const lock = await api(`/v1/date-locks/${record.id}/submission`, { method: "POST", headers: { "Idempotency-Key": record.submitKey }, body: JSON.stringify({ txHash: record.createHash }) });
-      if (lock.state === "CONFIRMED") { sessionStorage.removeItem(storageKey); setSaved(null); setDone(true); setError(""); onSettled(); }
-    } catch { setError("The date lock was submitted. Confirmation is still being checked."); }
-  }, [api, onSettled, storageKey]);
+      if (lock.state === "CONFIRMED") { sessionStorage.removeItem(storageKey); setSaved(null); setDone(true); toast.success("Date lock confirmed.", { id: `date-lock-create:${userId}` }); onSettled(); }
+    } catch { toast.loading("Date lock submitted. Checking confirmation…", { id: `date-lock-create:${userId}` }); }
+  }, [api, onSettled, storageKey, userId]);
   useEffect(() => {
     const initial = window.setTimeout(() => {
       try { const record = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Saved | null; if (record?.id && record.reference === reference && record.amountUnits === amountUnits && record.unlockAt === unlockAt) setSaved(record); } catch { /* Ignore broken local recovery data. */ }
@@ -49,17 +50,20 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
   useEffect(() => {
     if (!online || !saved) return;
     if (saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash) {
-      const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_CREATE" })).catch(() => setError("Approval is still being checked.")), 0);
+      const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => {
+        save({ ...saved, stage: "READY_CREATE" });
+        toast.success("Funding approved. You can create the date lock now.", { id: `date-lock-create:${userId}` });
+      }).catch(() => toast.loading("Approval submitted. Checking confirmation…", { id: `date-lock-create:${userId}` })), 0);
       return () => window.clearTimeout(initial);
     }
     if (saved.stage === "CREATE_SUBMITTED" && saved.createHash) {
       const initial = window.setTimeout(() => void reconcile(saved), 0), poll = window.setInterval(() => void reconcile(saved), 5000);
       return () => { window.clearTimeout(initial); window.clearInterval(poll); };
     }
-  }, [online, reconcile, save, saved, waitFor]);
+  }, [online, reconcile, save, saved, userId, waitFor]);
   async function approve() {
-    if (!online) { setError("Reconnect before approving this date lock."); return; }
-    setBusy(true); setError("");
+    if (!online) { toast.error("Reconnect before approving this date lock.", { id: `date-lock-create:${userId}` }); return; }
+    setBusy(true); toast.loading("Confirm date-lock funding in your wallet…", { id: `date-lock-create:${userId}` });
     try {
       const request = draft ?? { createKey: crypto.randomUUID(), reference, amountUnits, unlockAt };
       if (!draft) { sessionStorage.setItem(draftKey, JSON.stringify(request)); setDraft(request); }
@@ -70,13 +74,14 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
       const sent = await sendWithSponsorFallback(userId, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
       const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
       save(submitted); await waitFor(sent.hash); save({ ...submitted, stage: "READY_CREATE" });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not approve date-lock funding."); }
+      toast.success("Funding approved. You can create the date lock now.", { id: `date-lock-create:${userId}` });
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not approve date-lock funding.", { id: `date-lock-create:${userId}` }); }
     finally { setBusy(false); }
   }
   async function create() {
-    if (!online) { setError("Reconnect before creating this date lock."); return; }
+    if (!online) { toast.error("Reconnect before creating this date lock.", { id: `date-lock-create:${userId}` }); return; }
     if (!saved || saved.stage !== "READY_CREATE") return;
-    setBusy(true); setError("");
+    setBusy(true); toast.loading("Confirm date-lock creation in your wallet…", { id: `date-lock-create:${userId}` });
     try {
       const lock = await api(`/v1/date-locks/${saved.id}`);
       const plan = checkedDateLockPlan(lock, address, token, chainId, saved.recipientAddress, amountUnits, unlockAt);
@@ -84,8 +89,8 @@ export default function DateLockSend({ apiOrigin, userId, reference, recipient, 
       const sent = await sendWithSponsorFallback(userId, { to: plan.create.to as Hex, data: plan.create.data, value: BigInt(0), chainId }, address);
       const submitted = { ...saved, stage: "CREATE_SUBMITTED" as const, createHash: sent.hash };
       save(submitted); await reconcile(submitted);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create the date lock."); }
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not create the date lock.", { id: `date-lock-create:${userId}` }); }
     finally { setBusy(false); }
   }
-  return <><button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit date lock"}</button><h1 className="text-4xl font-semibold tracking-tight">Unlock later</h1><div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">Recipient</p><p className="mt-1 font-semibold">{recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), decimals)} {symbol}</p><p className="mt-5 text-sm text-stone-500">Unlocks</p><p className="mt-1 font-semibold">{new Date(unlockAt).toLocaleString()}</p><p className="mt-5 text-sm leading-6 text-stone-600">The full amount is funded now. The recipient can collect it after the unlock time.</p>{done ? <p className="mt-6 font-semibold text-emerald-800">Date lock confirmed.</p> : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve date-lock funding"}</button> : saved.stage === "READY_CREATE" ? <button type="button" disabled={busy || !online} onClick={() => void create()} className={`${button} mt-7 w-full`}>{busy ? "Creating…" : "Create date lock"}</button> : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div> : saved.stage === "CREATE_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Date lock was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void create()} className={`${button} mt-4 w-full`}>{busy ? "Creating…" : "Retry date lock"}</button></div> : <p role="status" className="mt-6 text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking date-lock confirmation…"}</p>}</div>{error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}</>;
+  return <><button type="button" onClick={onBack} className="mb-5 min-h-11 self-start text-sm font-semibold text-orange-700">← {done ? "Back" : "Edit date lock"}</button><h1 className="text-4xl font-semibold tracking-tight">Unlock later</h1><div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">Recipient</p><p className="mt-1 font-semibold">{recipient}</p><p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), decimals)} {symbol}</p><p className="mt-5 text-sm text-stone-500">Unlocks</p><p className="mt-1 font-semibold">{new Date(unlockAt).toLocaleString()}</p><p className="mt-5 text-sm leading-6 text-stone-600">The full amount is funded now. The recipient can collect it after the unlock time.</p>{done ? <p className="mt-6 font-semibold text-emerald-800">Date lock confirmed.</p> : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve date-lock funding"}</button> : saved.stage === "READY_CREATE" ? <button type="button" disabled={busy || !online} onClick={() => void create()} className={`${button} mt-7 w-full`}>{busy ? "Creating…" : "Create date lock"}</button> : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div> : saved.stage === "CREATE_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Date lock was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void create()} className={`${button} mt-4 w-full`}>{busy ? "Creating…" : "Retry date lock"}</button></div> : <p role="status" className="mt-6 text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking date-lock confirmation…"}</p>}</div></>;
 }

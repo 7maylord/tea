@@ -23,7 +23,7 @@ export default function Providers({
       }}
     >
       {children}
-      <Toaster richColors position="top-center" />
+      <Toaster closeButton richColors position="top-center" toastOptions={{ duration: 4500 }} />
     </PrivyProvider>
   );
 }

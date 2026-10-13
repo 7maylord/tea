@@ -1,7 +1,8 @@
 "use client";
 
 import { Widget, WidgetConfigProvider, type WidgetConfigProviderProps } from "@aurora-is-near/intents-swap-widget-standalone";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 type Target = {
   label: string;
@@ -10,20 +11,25 @@ type Target = {
 
 const targets: Target[] = [
   { label: "USDC", token: { symbol: "USDC", blockchain: "monad" } },
-  { label: "AUSD", token: { symbol: "AUSD", blockchain: "monad" } },
+  { label: "USDT0", token: { symbol: "USDT0", blockchain: "monad" } },
   { label: "MON", token: { symbol: "MON", blockchain: "monad" } },
 ];
 
 export default function AuroraTopUp({ address }: { address: string }) {
   const apiKey = process.env.NEXT_PUBLIC_AURORA_INTENTS_API_KEY;
   const [open, setOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     if (!open) return;
-    dialog.current?.showModal();
     const previous = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = previous; };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [open]);
   const [target, setTarget] = useState(targets[0]);
   const config = useMemo<WidgetConfigProviderProps["config"]>(() => ({
@@ -40,9 +46,17 @@ export default function AuroraTopUp({ address }: { address: string }) {
     lockSwapDirection: true,
   }), [address, apiKey, target]);
 
+  function showWidget() {
+    if (!apiKey) {
+      toast.error("Top up is temporarily unavailable.", { id: "aurora-top-up" });
+      return;
+    }
+    setOpen(true);
+  }
+
   function choose(item: Target) {
     setTarget(item);
-    if (apiKey) setOpen(true);
+    showWidget();
   }
 
   return (
@@ -51,9 +65,9 @@ export default function AuroraTopUp({ address }: { address: string }) {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">Top up</p>
           <h2 className="mt-1 text-xl font-semibold text-stone-950">Add funds</h2>
-          <p className="mt-2 text-sm leading-6 text-stone-600">Bridge USDC, AUSD, or MON to this TEA wallet.</p>
+          <p className="mt-2 text-sm leading-6 text-stone-600">Bridge USDC, USDT0, or MON to this TEA wallet.</p>
         </div>
-        <button type="button" disabled={!apiKey} onClick={() => setOpen(true)} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">
+        <button type="button" onClick={showWidget} className="min-h-11 rounded-xl bg-stone-900 px-4 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">
           Top up
         </button>
       </div>
@@ -70,17 +84,18 @@ export default function AuroraTopUp({ address }: { address: string }) {
           </button>
         ))}
       </div>
-      {!apiKey && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">Aurora top-up needs NEXT_PUBLIC_AURORA_INTENTS_API_KEY.</p>}
+      <p className="mt-4 text-xs leading-5 text-amber-800">Aurora currently delivers these assets on Monad mainnet. They will not change your TEA testnet TUSD balance.</p>
       {open && apiKey && (
-        <dialog ref={dialog} onClose={() => setOpen(false)} onCancel={() => setOpen(false)} className="fixed inset-0 m-auto max-h-[92dvh] w-[calc(100%_-_24px)] max-w-md rounded-3xl border-0 bg-transparent p-0 backdrop:bg-stone-950/55" aria-label="Top up with Aurora">
-          <div className="max-h-[92dvh] w-full max-w-md overflow-hidden rounded-3xl bg-[#f6f2e9] shadow-2xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3" role="dialog" aria-modal="true" aria-label="Top up with Aurora">
+          <button type="button" aria-label="Close top up" onClick={() => setOpen(false)} className="absolute inset-0 bg-stone-950/55" />
+          <div className="relative max-h-[92dvh] w-full max-w-md overflow-hidden rounded-3xl bg-[#f6f2e9] shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-stone-200 bg-white p-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">Aurora Intents</p>
                 <h3 className="mt-1 text-lg font-semibold text-stone-950">Top up {target.label}</h3>
                 <p className="mt-1 text-xs text-stone-500">Funds arrive at your TEA wallet.</p>
               </div>
-              <button type="button" onClick={() => setOpen(false)} className="min-h-10 rounded-xl border border-stone-300 px-3 text-sm font-semibold text-stone-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">
+              <button type="button" autoFocus onClick={() => setOpen(false)} className="min-h-10 rounded-xl border border-stone-300 px-3 text-sm font-semibold text-stone-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">
                 Close
               </button>
             </div>
@@ -105,7 +120,7 @@ export default function AuroraTopUp({ address }: { address: string }) {
               </div>
             </div>
           </div>
-        </dialog>
+        </div>
       )}
     </section>
   );

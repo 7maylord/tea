@@ -43,7 +43,6 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
   const [draft, setDraft] = useState<DirectDraft | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const storageKey = `tea:payment:${userId}`;
   const draftKey = `tea:payment-draft:${userId}`;
   const reviewKey = `tea:send-review:${userId}`;
@@ -80,8 +79,11 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       try {
         const saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "null") as Pending | null;
         if (saved && /^[0-9a-f-]{36}$/.test(saved.id) && /^[0-9a-f-]{36}$/.test(saved.submitKey)) {
-          if (saved.hash && /^0x[0-9a-f]{64}$/.test(saved.hash)) setPending(saved);
-          else { sessionStorage.removeItem(storageKey); toast.info("No transaction was submitted. Try again when ready."); }
+          if (saved.hash && /^0x[0-9a-f]{64}$/.test(saved.hash)) {
+            setPending(saved);
+            toast.loading("Payment submitted. Checking confirmation…", { id: `payment:${userId}` });
+          }
+          else { sessionStorage.removeItem(storageKey); toast.info("No transaction was submitted. Try again when ready.", { id: `payment:${userId}` }); }
         }
       } catch { /* A broken local record cannot authorize a payment. */ }
       try {
@@ -97,7 +99,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       } catch { /* Ignore unusable intent recovery data. */ }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [draftKey, reviewKey, storageKey]);
+  }, [draftKey, reviewKey, storageKey, userId]);
 
   const reconcile = useCallback(async (record: Pending) => {
     if (!online || !record.hash || reconciling.current) return;
@@ -117,8 +119,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         setMode("now");
         setDuration("86400");
         setUnlockAt("");
-        setError("");
-        toast.success("Payment confirmed.");
+        toast.success("Payment confirmed.", { id: `payment:${userId}` });
         settled();
       }
     } catch {
@@ -126,7 +127,7 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
     } finally {
       reconciling.current = false;
     }
-  }, [authFetch, online, settled, storageKey]);
+  }, [authFetch, online, settled, storageKey, userId]);
 
   useEffect(() => {
     if (!pending?.hash) return;
@@ -139,22 +140,21 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
 
   async function continueToReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!balance) { setError("Refresh your balance before sending."); return; }
+    if (!balance) { toast.error("Refresh your balance before sending.", { id: `payment:${userId}` }); return; }
     const entered = recipient.trim();
     const recipientKind = entered.includes("@") ? "email" : "handle";
     const value = recipientKind === "handle" ? entered.toLowerCase() : entered;
     if ((recipientKind === "handle" && !/^[a-z0-9_]{3,20}$/.test(value)) ||
       (recipientKind === "email" && (value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)))) {
-      setError("Enter an exact TEA name or email address."); return;
+      toast.error("Enter an exact TEA name or email address.", { id: `payment:${userId}` }); return;
     }
     let units: bigint;
     try { units = parseUnits(amount, balance.decimals); }
-    catch { setError("Enter a valid amount."); return; }
+    catch { toast.error("Enter a valid amount.", { id: `payment:${userId}` }); return; }
     if (units <= BigInt(0) || units > BigInt(balance.balanceUnits)) {
-      setError("Enter an amount within your available balance."); return;
+      toast.error("Enter an amount within your available balance.", { id: `payment:${userId}` }); return;
     }
     setBusy(true);
-    setError("");
     try {
       const result = await authFetch("/v1/resolve", {
         method: "POST",
@@ -174,15 +174,15 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         throw new Error(mode === "stream" ? "Streams can only be sent to an existing TEA member." : "Date locks can only be sent to an existing TEA member.");
       } else throw new Error("Recipient could not be verified.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Recipient could not be verified.");
+      toast.error(cause instanceof Error ? cause.message : "Recipient could not be verified.", { id: `payment:${userId}` });
     } finally { setBusy(false); }
   }
 
   async function submit() {
-    if (!online) { setError("Reconnect before sending this payment."); return; }
+    if (!online) { toast.error("Reconnect before sending this payment.", { id: `payment:${userId}` }); return; }
     if (!review || review.kind !== "direct" || !balance || busy) return;
     setBusy(true);
-    setError("");
+    toast.loading("Confirm the payment in your wallet…", { id: `payment:${userId}` });
     try {
       const matchingDraft = draft?.reference === review.reference && draft.recipient === review.recipient && draft.amountUnits === review.amountUnits
         ? draft : null;
@@ -205,12 +205,12 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
       sessionStorage.setItem(storageKey, JSON.stringify(submitted));
       setPending(submitted);
       setReview(null);
-      toast.info("Payment submitted. Checking confirmation…");
+      toast.loading("Payment submitted. Checking confirmation…", { id: `payment:${userId}` });
       await reconcile(submitted);
     } catch (cause) {
       sessionStorage.removeItem(storageKey);
       setPending(null);
-      toast.error(cause instanceof Error ? cause.message : "Could not submit the payment.");
+      toast.error(cause instanceof Error ? cause.message : "Could not submit the payment.", { id: `payment:${userId}` });
     } finally { setBusy(false); }
   }
 
@@ -256,7 +256,6 @@ export default function SendFlow({ apiOrigin, userId, address, chainId, balance,
         <p className="text-xs leading-5 text-stone-500">Available: {balance ? `${formatUnits(BigInt(balance.balanceUnits), balance.decimals)} ${balance.symbol}` : "Loading…"}</p>
         <button type="submit" disabled={busy || !balance} className={button}>{busy ? "Checking…" : "Review payment →"}</button>
       </form>}
-    {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     </>}
   </>;
 }

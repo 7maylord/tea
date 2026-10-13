@@ -3,6 +3,7 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { authHeaders } from "../../auth";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { formatUnits, hashTypedData, type Hex } from "viem";
 import { useOnlineStatus } from "../../pwa";
 import { ensureMeraAccount, meraErrorMessage, signMeraTypedData } from "../../mera";
@@ -73,8 +74,11 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
       const result = await post("/v1/claims/resolve-link", { token }) as Invitation;
       setInvitation(result);
       setError("");
+      toast.dismiss("claim-invitation");
     } catch (cause) {
-      setError(meraErrorMessage(cause));
+      const message = meraErrorMessage(cause);
+      setError(message);
+      toast.error(message, { id: "claim-invitation" });
     }
   }, [post, session, syncMera, token]);
 
@@ -88,10 +92,11 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
   }, [online, ready, authenticated, did, token, refresh]);
 
   async function collect() {
-    if (!online) { setError("Reconnect before collecting this payment."); return; }
+    if (!online) { toast.error("Reconnect before collecting this payment.", { id: "claim-collect" }); return; }
     if (!invitation || invitation.state !== "OPEN" || !address || busy || !did) return;
     setBusy(true);
     setError("");
+    toast.loading("Confirm this claim with your passkey…", { id: "claim-collect" });
     try {
       const proof = await post(`/v1/claims/${invitation.id}/authorize`, { inviteToken: token }, crypto.randomUUID()) as Proof;
       const typed = proof.acceptanceTypedData;
@@ -114,9 +119,10 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
         recipientSignature: signature,
       }, crypto.randomUUID());
       setSubmitted(true);
+      toast.success("Claim submitted. Checking confirmation…", { id: "claim-collect" });
       await refresh();
     } catch (cause) {
-      setError(meraErrorMessage(cause));
+      toast.error(meraErrorMessage(cause), { id: "claim-collect" });
     } finally { setBusy(false); }
   }
 
@@ -131,7 +137,7 @@ export default function ClaimView({ token, apiOrigin, chainId }: { token: string
         : !address ? <p role="status" className="mt-6 text-stone-600">Preparing your passkey account…</p>
         : invitation ? <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-6"><p className="text-sm text-stone-500">From {invitation.payerHandle ? `@${invitation.payerHandle}` : "a TEA member"}</p><p className="mt-3 text-4xl font-semibold">{formatUnits(BigInt(invitation.amountUnits), 6)} test USD</p><p className="mt-5 text-sm text-stone-600">{invitation.state === "OPEN" ? `Claim before ${invitation.expiry ? new Date(invitation.expiry).toLocaleString() : "expiry"}. You will sign with your TEA passkey.` : invitation.state === "CLAIMED" ? "Claimed. The funds are in your wallet." : invitation.state === "REFUNDABLE" ? "This invitation has expired and the sender can request a refund." : "The sender was refunded."}</p>{invitation.state === "OPEN" && <button type="button" disabled={busy || submitted || !online} onClick={() => void collect()} className={`${button} mt-7 w-full`}>{busy ? "Submitting…" : submitted ? "Claim submitted" : "Collect money"}</button>}{submitted && invitation.state === "OPEN" && <p role="status" className="mt-4 text-sm text-stone-600">Your claim is queued. This page checks for confirmation automatically.</p>}</div>
         : <p role="status" className="mt-6 text-stone-600">Verifying your email and invitation…</p>}
-      {error && <div role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error} {authenticated && address && <button type="button" disabled={!online} onClick={() => void refresh()} className="min-h-11 px-2 font-semibold underline disabled:opacity-50">Retry</button>}</div>}
+      {error && authenticated && address && <button type="button" disabled={!online} onClick={() => void refresh()} className="mt-5 min-h-11 px-2 font-semibold text-red-800 underline disabled:opacity-50">Retry invitation check</button>}
     </section>
     <footer className="text-sm text-stone-500">Test funds only</footer>
   </main>;

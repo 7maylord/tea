@@ -19,7 +19,6 @@ export default function SplitSend({ apiOrigin, balance, onSettled }: { apiOrigin
   const [title, setTitle] = useState("");
   const [rows, setRows] = useState<Row[]>([{ person: "", amount: "" }, { person: "", amount: "" }]);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [created, setCreated] = useState<Split | null>(null);
   const preparedRows = useMemo(() => {
     if (!balance) return [];
@@ -47,12 +46,12 @@ export default function SplitSend({ apiOrigin, balance, onSettled }: { apiOrigin
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!balance) { setError("Refresh your balance before creating a split."); return; }
+    if (!balance) { toast.error("Refresh your balance before creating a split.", { id: "split-create" }); return; }
     const validRows = preparedRows.filter((row) => row.person || (typeof row.amount === "bigint" && row.amount > BigInt(0)));
-    if (validRows.length < 1 || validRows.length > 20) { setError("Add 1–20 people."); return; }
-    if (validRows.some((row) => !row.person || typeof row.amount !== "bigint" || row.amount <= BigInt(0))) { setError("Each person needs a TEA name and amount."); return; }
+    if (validRows.length < 1 || validRows.length > 20) { toast.error("Add 1–20 people.", { id: "split-create" }); return; }
+    if (validRows.some((row) => !row.person || typeof row.amount !== "bigint" || row.amount <= BigInt(0))) { toast.error("Each person needs a TEA name and amount.", { id: "split-create" }); return; }
     setBusy(true);
-    setError("");
+    toast.loading("Creating split requests…", { id: "split-create" });
     try {
       const obligations = await Promise.all(validRows.map(async (row) => {
         if (typeof row.amount !== "bigint") throw new Error("Enter a valid amount for each person.");
@@ -71,10 +70,10 @@ export default function SplitSend({ apiOrigin, balance, onSettled }: { apiOrigin
       setCreated(split);
       setTitle("");
       setRows([{ person: "", amount: "" }, { person: "", amount: "" }]);
-      toast.success("Split requests created.");
+      toast.success("Split requests created.", { id: "split-create" });
       onSettled();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create split.");
+      toast.error(cause instanceof Error ? cause.message : "Could not create split.", { id: "split-create" });
     } finally { setBusy(false); }
   }
 
@@ -103,6 +102,5 @@ export default function SplitSend({ apiOrigin, balance, onSettled }: { apiOrigin
       <p className="rounded-2xl bg-stone-100 p-4 text-sm text-stone-700">Total requested: <span className="font-semibold">{balance ? `${formatUnits(total, balance.decimals)} ${balance.symbol}` : "—"}</span></p>
       <button type="submit" disabled={busy || !balance} className={button}>{busy ? "Creating…" : "Create split"}</button>
     </form>
-    {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
   </>;
 }

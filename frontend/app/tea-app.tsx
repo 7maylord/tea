@@ -7,6 +7,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { toast } from "sonner";
 import Activity from "./activity";
 import { useOnlineStatus } from "./pwa";
 import SendFlow from "./send-flow";
@@ -36,7 +37,10 @@ function formatAmount(units: string, decimals: number) {
 }
 
 const primary = 'min-h-12 rounded-2xl bg-stone-900 px-6 font-semibold text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900';
-const AuroraTopUp = dynamic(() => import("./aurora-top-up"), { ssr: false });
+const AuroraTopUp = dynamic(() => import("./aurora-top-up"), {
+  ssr: false,
+  loading: () => <section className="mt-5 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm"><p className="text-sm font-semibold text-stone-700">Loading cross-chain top up…</p></section>,
+});
 const MeraWallet = dynamic(() => import("./mera-wallet"), { ssr: false });
 
 export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
@@ -50,7 +54,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   const [retry, setRetry] = useState(0);
   const [balance, setBalance] = useState<{ ownerId: string; data: Balance } | null>(null);
   const [balanceVersion, setBalanceVersion] = useState(0);
-  const [notice, setNotice] = useState('');
   const [view, setView] = useState<'home' | 'send' | 'activity' | 'profile'>('home');
   const did = user?.id;
   const session = active && active.did === did ? active.session : null;
@@ -93,9 +96,14 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
         copyMeraWallet(did, session.id);
         setActive({ did, session: { ...session, account: session.account } });
         setError('');
+        toast.dismiss('account-setup');
       })
       .catch((cause) => {
-        if (!controller.signal.aborted) setError(meraErrorMessage(cause));
+        if (!controller.signal.aborted) {
+          const message = meraErrorMessage(cause);
+          setError(message);
+          toast.error(message, { id: 'account-setup' });
+        }
       });
     return () => controller.abort();
   }, [apiOrigin, authenticated, did, online, ready, retry, user?.email?.address]);
@@ -115,7 +123,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       })
       .then((data) => setBalance({ ownerId: session.id, data }))
       .catch(() => {
-        if (!controller.signal.aborted) setError('Could not refresh your balance. Try again.');
+        if (!controller.signal.aborted) toast.error('Could not refresh your balance. Try again.', { id: 'balance-refresh' });
       });
     return () => controller.abort();
   }, [apiOrigin, balanceVersion, online, session?.account, session?.handle, session?.id, view]);
@@ -143,10 +151,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       setHandle('');
       setError('');
       setBalance(null);
-      setNotice('');
       setView('home');
     } catch {
-      setError('Could not sign out. Try again.');
+      toast.error('Could not sign out. Try again.', { id: 'sign-out' });
     } finally {
       setBusy(false);
     }
@@ -155,7 +162,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
   async function reserveHandle(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!/^[a-z0-9_]{3,20}$/.test(handle)) {
-      setError('Use 3–20 lowercase letters, numbers, or underscores.');
+      toast.error('Use 3–20 lowercase letters, numbers, or underscores.', { id: 'handle' });
       return;
     }
     setBusy(true);
@@ -174,8 +181,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       setActive((current) => current && current.did === did
         ? { ...current, session: { ...current.session, handle } }
         : current);
+      toast.success(`@${handle} is yours.`, { id: 'handle' });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not save your handle.');
+      toast.error(cause instanceof Error ? cause.message : 'Could not save your handle.', { id: 'handle' });
     } finally {
       setBusy(false);
     }
@@ -183,8 +191,7 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
 
   async function claimFaucet() {
     setFaucetBusy(true);
-    setError('');
-    setNotice('');
+    toast.loading('Claiming test funds…', { id: 'faucet' });
     try {
       const response = await fetch(`${apiOrigin}/v1/faucet/claim`, {
         method: 'POST',
@@ -192,10 +199,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
       });
       if (response.status === 409) throw new Error('You already claimed today.');
       if (!response.ok) throw new Error('Could not claim test funds. Try again.');
-      setNotice('10,000 TUSD claimed.');
+      toast.success('10,000 TUSD claimed.', { id: 'faucet' });
       setBalanceVersion((value) => value + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not claim test funds.');
+      toast.error(cause instanceof Error ? cause.message : 'Could not claim test funds.', { id: 'faucet' });
     } finally {
       setFaucetBusy(false);
     }
@@ -220,7 +227,6 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
           <>
             <h1 className="text-3xl font-semibold">Preparing your TEA account</h1>
             <p className="mt-3 text-stone-600">Returning users go straight in. On your first visit, your passkey creates your payment wallet.</p>
-            {error && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             {error && <button type="button" onClick={() => setRetry((value) => value + 1)} className={`${primary} mt-6`}>Try again</button>}
           </>
         ) : !session.handle ? (
@@ -282,11 +288,9 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
             </>}
           </>
         )}
-        {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
-        {error && <p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       </section>
       {session?.handle && view !== 'send' && <nav aria-label="Main" className="tea-app-nav">
-        {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); setNotice(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={item === 'home' ? 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z' : item === 'activity' ? 'M3 12h4l3-8 4 16 3-8h4' : 'M5 21v-2a7 7 0 0 1 14 0v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'} /></svg>{item}</button>)}
+        {(['home', 'activity', 'profile'] as const).map((item) => <button key={item} type="button" aria-current={view === item ? 'page' : undefined} onClick={() => { setView(item); setError(''); }} className={`min-h-12 rounded-xl px-2 text-sm font-semibold capitalize focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 ${view === item ? 'bg-stone-900 text-white' : 'text-stone-600'}`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d={item === 'home' ? 'M3 10 12 3l9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z' : item === 'activity' ? 'M3 12h4l3-8 4 16 3-8h4' : 'M5 21v-2a7 7 0 0 1 14 0v2M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'} /></svg>{item}</button>)}
       </nav>}
     </main>
   );

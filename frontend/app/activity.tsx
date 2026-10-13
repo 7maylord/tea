@@ -38,7 +38,6 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
   const [error, setError] = useState("");
   const [claimAction, setClaimAction] = useState<string | null>(null);
   const [splitAction, setSplitAction] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
   const [now, setNow] = useState(0);
 
   const refresh = useCallback(async (signal?: AbortSignal, cursor?: string) => {
@@ -68,8 +67,13 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
       }
       setNow(Date.now());
       setError("");
+      toast.dismiss("activity-load");
     } catch (cause) {
-      if (!signal?.aborted) setError(cause instanceof Error ? cause.message : "Could not load activity.");
+      if (!signal?.aborted) {
+        const message = cause instanceof Error ? cause.message : "Could not load activity.";
+        setError(message);
+        toast.error(message, { id: "activity-load" });
+      }
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -86,22 +90,26 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
   }, [online, refresh]);
 
   async function claimRequest(claim: Payment, action: "resend" | "refund") {
-    if (!online) { setError("Reconnect before updating this claim."); return; }
+    const toastId = `claim-action:${claim.id}`;
+    if (!online) { toast.error("Reconnect before updating this claim.", { id: toastId }); return; }
     if (!claim.claimId || claimAction) return;
-    setClaimAction(claim.id); setError(""); setNotice("");
+    setClaimAction(claim.id);
+    toast.loading(action === "refund" ? "Requesting refund…" : "Queueing invitation…", { id: toastId });
     try {
       const response = await fetch(`${apiOrigin}/v1/claims/${claim.claimId}/${action}`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() } });
       if (!response.ok) throw new Error(response.status === 429 ? "Wait before sending another invitation." : action === "refund" ? "This claim is not refundable yet." : "Could not resend this invitation.");
-      setNotice(action === "refund" ? "Refund queued. Activity will update after chain confirmation." : "Invitation queued for delivery.");
+      toast.success(action === "refund" ? "Refund queued. Activity will update after chain confirmation." : "Invitation queued for delivery.", { id: toastId });
       await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update this claim."); }
+    } catch (cause) { toast.error(cause instanceof Error ? cause.message : "Could not update this claim.", { id: toastId }); }
     finally { setClaimAction(null); }
   }
 
   async function paySplit(split: Split, obligation: SplitObligation) {
-    if (!online) { setError("Reconnect before paying this split."); return; }
-    if (!balance) { setError("Refresh your balance before paying this split."); return; }
-    setSplitAction(obligation.id); setError(""); setNotice("");
+    const toastId = `split-payment:${obligation.id}`;
+    if (!online) { toast.error("Reconnect before paying this split.", { id: toastId }); return; }
+    if (!balance) { toast.error("Refresh your balance before paying this split.", { id: toastId }); return; }
+    setSplitAction(obligation.id);
+    toast.loading("Confirm the split payment in your wallet…", { id: toastId });
     try {
       const prepared = await fetch(`${apiOrigin}/v1/splits/${split.id}/obligations/${obligation.id}/payment`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() } });
       if (!prepared.ok) throw new Error(prepared.status === 422 ? "Not enough available funds." : "Could not prepare this split payment.");
@@ -111,11 +119,11 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
       const submitted = await fetch(`${apiOrigin}/v1/payments/${intent.id}/submission`, { method: "POST", headers: { ...await authHeaders(), "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ txHash: sent.hash }) });
       if (!submitted.ok) throw new Error("Payment was sent, but confirmation check failed. Activity will retry.");
       const result = await submitted.json() as { state: string };
-      toast.success(result.state === "CONFIRMED" ? "Split paid." : "Split payment submitted.");
+      toast.success(result.state === "CONFIRMED" ? "Split paid." : "Split payment submitted.", { id: toastId });
       onSettled();
       await refresh();
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not pay split.");
+      toast.error(cause instanceof Error ? cause.message : "Could not pay split.", { id: toastId });
     } finally { setSplitAction(null); }
   }
 
@@ -135,8 +143,7 @@ export default function Activity({ apiOrigin, userId, address, chainId, balance,
       <div className="mt-8 space-y-3">{threads.map((thread) => <button key={thread.id} type="button" onClick={() => { setSelected(thread.id); setPayments([]); setLoading(true); }} className="group flex min-h-20 w-full items-center gap-4 rounded-2xl border border-[#dce3d8] bg-white/80 p-5 text-left transition-colors hover:border-[#8aa68c] hover:bg-[#f0f4e8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#173e32]"><span aria-hidden="true" className="flex size-11 shrink-0 items-center justify-center rounded-full bg-[#eaf0dd] font-serif text-xl text-[#173e32]">{thread.counterpartyHandle?.slice(0, 1).toUpperCase() ?? "T"}</span><span className="min-w-0 flex-1 break-words"><span className="block font-semibold">{thread.counterpartyHandle ? `@${thread.counterpartyHandle}` : "TEA member"}</span><span className="mt-1 block text-sm text-stone-500">{thread.latestPayment?.kind === "STREAM" ? "Stream" : thread.latestPayment?.kind === "DATE_LOCK" ? "Date lock" : "Payment"} · {thread.latestPayment?.state.replaceAll("_", " ").toLowerCase()}</span></span><span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-full border border-stone-200 text-[#39634c] transition-colors group-hover:border-[#173e32] group-hover:bg-[#173e32] group-hover:text-white">↗</span></button>)}{!loading && threads.length === 0 && incomingSplits.length === 0 && <div className="relative overflow-hidden rounded-3xl border border-[#dce3d8] bg-[#eef2e6] px-6 py-12 text-center"><div aria-hidden="true" className="mx-auto mb-7 flex w-fit items-center gap-3 text-[#39634c]"><span className="flex size-12 -rotate-12 items-center justify-center rounded-2xl border border-[#cbd7b9] bg-white font-serif text-xl">t.</span><span className="text-2xl">···↗</span><span className="flex size-12 rotate-12 items-center justify-center rounded-2xl bg-[#173e32] text-xl text-[#d6ed9c]">♡</span></div><h2 className="font-serif text-3xl text-[#173e32]">Good things start here.</h2><p className="mx-auto mt-3 max-w-xs text-sm leading-6 text-stone-600">Payments with other TEA members will appear here. Send a little something to start your story.</p></div>}</div>
     </>}
     {loading && <p role="status" className="mt-5 text-sm text-stone-600">Loading activity…</p>}
-    {notice && <p role="status" className="mt-5 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</p>}
     {nextCursor && !loading && <button type="button" onClick={() => { setLoading(true); void refresh(undefined, nextCursor); }} className="mt-5 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold">Load more</button>}
-    {error && <div role="alert" className="mt-5 text-sm text-red-800">{error} <button type="button" onClick={() => void refresh()} className="min-h-11 px-2 font-semibold underline">Retry</button></div>}
+    {error && <button type="button" onClick={() => void refresh()} className="mt-5 min-h-11 px-2 text-sm font-semibold text-red-800 underline">Retry loading activity</button>}
   </>;
 }
