@@ -9,4 +9,9 @@ export class FaucetController {
   claim(@Headers('privy-id-token') token: string | undefined) {
     return this.faucet.claim(token);
   }
+
+  @Post('gas')
+  gas(@Headers('privy-id-token') token: string | undefined) {
+    return this.faucet.gas(token);
+  }
 }

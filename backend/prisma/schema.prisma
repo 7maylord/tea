@@ -21,6 +21,7 @@ model User {
   outgoingSplits   Split[]         @relation("OutgoingSplits")
   splitObligations SplitObligation[]
   faucetClaims     FaucetClaim[]
+  gasGrants        GasGrant[]
   lowerThreads     Thread[]        @relation("LowerThreadUser")
   upperThreads     Thread[]        @relation("UpperThreadUser")
 
@@ -279,6 +280,25 @@ model FaucetClaim {
   @@unique([chainId, walletAddress, claimDay])
   @@index([userId, createdAt])
   @@map("faucet_claims")
+}
+
+model GasGrant {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  chainId       Int
+  walletAddress String   @db.VarChar(42)
+  grantDay      DateTime @db.Date
+  amountWei     Decimal  @db.Decimal(78, 0)
+  state         String   @db.VarChar(16)
+  txHash        String?  @db.VarChar(66)
+  blockNumber   BigInt?  @db.BigInt
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([chainId, walletAddress, grantDay])
+  @@index([userId, createdAt])
+  @@map("gas_grants")
 }
 
 model Split {

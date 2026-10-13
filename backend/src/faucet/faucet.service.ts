@@ -4,13 +4,19 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { Prisma, PrismaClient, type FaucetClaim } from '@prisma/client';
+import {
+  Prisma,
+  PrismaClient,
+  type FaucetClaim,
+  type GasGrant,
+} from '@prisma/client';
 import {
   createPublicClient,
   createWalletClient,
   defineChain,
   http,
   isAddress,
+  parseEther,
   type Address,
   type Hex,
 } from 'viem';
@@ -20,6 +26,12 @@ import { SessionService } from '../identity/session.service';
 
 const tokenAbi = tokenAbiJson as any;
 const claimUnits = 10_000n * 1_000_000n;
+const gasGrantWei = parseEther('0.1');
+const gasMinimumWei = parseEther('0.02');
+
+export function needsGasGrant(balance: bigint) {
+  return balance < gasMinimumWei;
+}
 
 function utcClaimDay() {
   const now = new Date();
@@ -90,6 +102,119 @@ export class FaucetService {
         cause.code === 'P2002'
       ) {
         throw new ConflictException('Faucet already claimed today');
+      }
+      throw cause;
+    }
+  }
+
+  private async reserveGasGrant(
+    userId: string,
+    chainId: number,
+    walletAddress: string,
+    grantDay: Date,
+  ) {
+    const existing = await this.db.gasGrant.findUnique({
+      where: {
+        chainId_walletAddress_grantDay: {
+          chainId,
+          walletAddress,
+          grantDay,
+        },
+      },
+    });
+    if (existing?.state === 'CONFIRMED' || existing?.state === 'PENDING') {
+      throw new ConflictException('Daily testnet gas allowance already used');
+    }
+    if (existing) {
+      return this.db.gasGrant.update({
+        where: { id: existing.id },
+        data: { state: 'PENDING', txHash: null, blockNumber: null },
+      });
+    }
+    try {
+      return await this.db.gasGrant.create({
+        data: {
+          userId,
+          chainId,
+          walletAddress,
+          grantDay,
+          amountWei: new Prisma.Decimal(gasGrantWei.toString()),
+          state: 'PENDING',
+        },
+      });
+    } catch (cause) {
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === 'P2002'
+      ) {
+        throw new ConflictException('Daily testnet gas allowance already used');
+      }
+      throw cause;
+    }
+  }
+
+  async gas(identityToken: string | undefined) {
+    if (!identityToken)
+      throw new UnauthorizedException('Session token required');
+    const user = await this.sessions.sync(identityToken);
+    const { rpcUrl, chainId, key } = this.config();
+    if (user.account.chainId !== chainId)
+      throw new ServiceUnavailableException('Wrong faucet chain');
+
+    const chain = defineChain({
+      id: chainId,
+      name: 'TEA settlement',
+      nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+      rpcUrls: { default: { http: [rpcUrl] } },
+    });
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(rpcUrl, { timeout: 10_000 }),
+    });
+    const address = user.account.address as Address;
+    const balance = await publicClient.getBalance({ address });
+    if (!needsGasGrant(balance)) {
+      return { amountWei: '0', chainId, txHash: null };
+    }
+
+    let grant: GasGrant | undefined;
+    let submitted = false;
+    try {
+      grant = await this.reserveGasGrant(
+        user.id,
+        chainId,
+        address.toLowerCase(),
+        utcClaimDay(),
+      );
+      const wallet = createWalletClient({
+        account: privateKeyToAccount(key),
+        chain,
+        transport: http(rpcUrl, { timeout: 10_000 }),
+      });
+      const txHash = await wallet.sendTransaction({
+        to: address,
+        value: gasGrantWei,
+      });
+      await this.db.gasGrant.update({
+        where: { id: grant.id },
+        data: { txHash },
+      });
+      submitted = true;
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+        timeout: 60_000,
+      });
+      if (receipt.status !== 'success') throw new Error('Gas grant failed');
+      await this.db.gasGrant.update({
+        where: { id: grant.id },
+        data: { state: 'CONFIRMED', blockNumber: receipt.blockNumber },
+      });
+      return { amountWei: gasGrantWei.toString(), chainId, txHash };
+    } catch (cause) {
+      if (grant && !submitted) {
+        await this.db.gasGrant
+          .update({ where: { id: grant.id }, data: { state: 'FAILED' } })
+          .catch(() => undefined);
       }
       throw cause;
     }

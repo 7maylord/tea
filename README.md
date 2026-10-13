@@ -20,7 +20,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 - **Date unlock** — `TeaDateUnlock` releases the full funded amount to the recipient after a chosen date.
 - **Split requests** — offchain split ledger for tracking who should pay whom.
 - **Private activity** — backend-owned threads backed by RPC-verified transaction submissions.
-- **Test faucet** — authenticated wallets can claim 10,000 TUSD once per UTC day.
+- **Test faucet** — authenticated wallets can claim 10,000 TUSD and receive a limited MON gas allowance once per UTC day.
 - **Mobile PWA** — responsive send, claim, stream, split, and activity flows.
 
 ## Deployed Monad testnet contracts
