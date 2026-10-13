@@ -5,7 +5,7 @@ import { formatUnits, type Hex } from "viem";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { checkedClaimPlan, type ClaimIntent } from "./claim-plan";
-import { sendWithSponsorFallback } from "./send-transaction";
+import { sendManyWithSponsorFallback, sendWithSponsorFallback } from "./send-transaction";
 import { waitForMeraReceipt } from "./mera";
 import { useOnlineStatus } from "./pwa";
 
@@ -96,7 +96,7 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
   }, [auth, onSettled, storageKey, userId]);
 
   useEffect(() => {
-    if (!online || !saved) return;
+    if (!online || !saved || busy) return;
     if (saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash) {
       const initial = window.setTimeout(() => void waitFor(saved.approvalHash!).then(() => {
         save({ ...saved, stage: "READY_DEPOSIT" });
@@ -109,12 +109,12 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       const poll = window.setInterval(() => void reconcile(saved), 5000);
       return () => { window.clearTimeout(initial); window.clearInterval(poll); };
     }
-  }, [online, reconcile, save, saved, userId, waitFor]);
+  }, [busy, online, reconcile, save, saved, userId, waitFor]);
 
-  async function approve() {
-    if (!online) { toast.error("Reconnect before approving this payment.", { id: `email-payment:${userId}` }); return; }
+  async function approveAndDeposit() {
+    if (!online) { toast.error("Reconnect before sending this payment.", { id: `email-payment:${userId}` }); return; }
     setBusy(true);
-    toast.loading("Confirm funding approval in your wallet…", { id: `email-payment:${userId}` });
+    toast.loading("Confirm once to approve and send this payment…", { id: `email-payment:${userId}` });
     try {
       let record = saved?.stage === "APPROVAL_REQUESTED" ? saved : null;
       const claim = record ? await auth(`/v1/claims/${record.id}`) : await (async () => {
@@ -133,14 +133,19 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       save(record);
       sessionStorage.removeItem(draftKey);
       setDraft(null);
-      const sent = await sendWithSponsorFallback(userId, { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId }, address);
-      const submitted = { ...record, stage: "APPROVAL_SUBMITTED" as const, approvalHash: sent.hash };
-      save(submitted);
-      await waitFor(sent.hash);
-      save({ ...submitted, stage: "READY_DEPOSIT" });
-      toast.success("Funding approved. Complete the deposit to send the invitation.", { id: `email-payment:${userId}` });
+      let submitted: SavedClaim = record;
+      await sendManyWithSponsorFallback(userId, [
+        { to: plan.approve.to as Hex, data: plan.approve.data, value: BigInt(0), chainId },
+        { to: plan.deposit.to as Hex, data: plan.deposit.data, value: BigInt(0), chainId },
+      ], address, (index, hash) => {
+        submitted = index === 0
+          ? { ...record, stage: "APPROVAL_SUBMITTED", approvalHash: hash }
+          : { ...submitted, stage: "DEPOSIT_SUBMITTED", depositHash: hash };
+        save(submitted);
+      });
+      await reconcile(submitted);
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : "Could not approve the escrow deposit.", { id: `email-payment:${userId}` });
+      toast.error(cause instanceof Error ? cause.message : "Could not send the escrow deposit.", { id: `email-payment:${userId}` });
     } finally { setBusy(false); }
   }
 
@@ -170,9 +175,9 @@ export default function ClaimSend({ apiOrigin, userId, email, amountUnits, addre
       <p className="mt-5 text-sm text-stone-500">Amount</p><p className="mt-1 text-3xl font-semibold">{formatUnits(BigInt(amountUnits), balance.decimals)} {balance.symbol}</p>
       <p className="mt-5 text-sm leading-6 text-stone-600">The full amount is locked for 14 days. The recipient must verify this email to collect it. After expiry, unclaimed funds return to you.</p>
       {done ? null
-        : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-7 w-full`}>{busy ? "Approving…" : draft ? "Retry setup" : "Approve escrow deposit"}</button>
+        : !saved ? <button type="button" disabled={busy || !online} onClick={() => void approveAndDeposit()} className={`${button} mt-7 w-full`}>{busy ? "Sending…" : draft ? "Retry payment" : "Approve and send invite"}</button>
         : saved.stage === "READY_DEPOSIT" ? <button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-7 w-full`}>{busy ? "Depositing…" : "Deposit and send invite"}</button>
-        : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Approval was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approve()} className={`${button} mt-4 w-full`}>{busy ? "Approving…" : "Retry approval"}</button></div>
+        : saved.stage === "APPROVAL_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Payment was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void approveAndDeposit()} className={`${button} mt-4 w-full`}>{busy ? "Sending…" : "Retry payment"}</button></div>
         : saved.stage === "DEPOSIT_REQUESTED" ? <div className="mt-6"><p className="text-sm font-semibold text-amber-800">Deposit was not submitted.</p><button type="button" disabled={busy || !online} onClick={() => void deposit()} className={`${button} mt-4 w-full`}>{busy ? "Depositing…" : "Retry deposit"}</button></div>
         : <div className="mt-6"><p role="status" className="text-sm text-stone-600">{saved.stage === "APPROVAL_SUBMITTED" ? "Checking approval…" : "Checking deposit confirmation…"}</p>{saved.stage === "APPROVAL_SUBMITTED" && saved.approvalHash && <button type="button" disabled={!online} onClick={() => void waitFor(saved.approvalHash!).then(() => save({ ...saved, stage: "READY_DEPOSIT" })).catch(() => toast.loading("Approval submitted. Checking confirmation…", { id: `email-payment:${userId}` }))} className="mt-4 min-h-11 rounded-xl border border-stone-300 px-4 text-sm font-semibold disabled:opacity-50">Check approval</button>}</div>}
     </div>

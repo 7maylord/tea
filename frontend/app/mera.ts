@@ -4,6 +4,7 @@ import { wordlist } from "@scure/bip39/wordlists/english.js";
 import { createPasskeyWithPrfOutput, createSecp256k1SigningSession, getEvmAddress, getPasskeyPrfOutput, type PasskeyCredentialMetadata } from "@category-labs/mera";
 import { toViemAccount } from "@category-labs/mera/viem";
 import { createPublicClient, createWalletClient, defineChain, http, type Chain, type Hex, type TransactionReceipt } from "viem";
+import { submitTransactionSequence } from "./transaction-sequence";
 
 export type StoredMeraWallet = {
   credential: PasskeyCredentialMetadata;
@@ -118,6 +119,37 @@ export async function sendMeraTransaction(ownerId: string, input: Transaction, e
     try {
       const wallet = createWalletClient({ account: toViemAccount(session), chain: chainFor(input.chainId), transport: http(rpcUrl) });
       return { hash: await wallet.sendTransaction({ to: input.to, data: input.data, value: input.value }) };
+    } finally {
+      session.end();
+    }
+  });
+}
+
+export async function sendMeraTransactions(
+  ownerId: string,
+  inputs: readonly Transaction[],
+  expectedAddress: string,
+  onSubmitted?: (index: number, hash: Hex) => void | Promise<void>,
+) {
+  if (inputs.length === 0 || inputs.some((input) => input.chainId !== inputs[0].chainId)) {
+    throw new Error("Transaction batch is invalid.");
+  }
+  return withMeraSession(ownerId, async (privateKey, stored) => {
+    if (stored.address.toLowerCase() !== expectedAddress.toLowerCase()) throw new Error("TEA passkey account changed.");
+    const session = createSecp256k1SigningSession({ privateKey });
+    try {
+      const chain = chainFor(inputs[0].chainId);
+      const wallet = createWalletClient({ account: toViemAccount(session), chain, transport: http(rpcUrl) });
+      const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+      return submitTransactionSequence(
+        inputs,
+        (input) => wallet.sendTransaction({ to: input.to, data: input.data, value: input.value }),
+        async (hash) => {
+          const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
+          if (receipt.status !== "success") throw new Error("Transaction failed.");
+        },
+        onSubmitted,
+      );
     } finally {
       session.end();
     }
