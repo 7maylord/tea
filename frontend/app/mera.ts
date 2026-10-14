@@ -213,7 +213,7 @@ export async function sendMeraTransactions(
       const chain = chainFor(inputs[0].chainId);
       const wallet = createWalletClient({ account: toViemAccount(session), chain, transport: http(rpcUrl) });
       const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
-      return submitTransactionSequence(
+      return await submitTransactionSequence(
         inputs,
         (input) => wallet.sendTransaction({ to: input.to, data: input.data, value: input.value }),
         async (hash) => {
@@ -240,7 +240,7 @@ export async function signMeraTypedData(ownerId: string, expectedAddress: string
     if (stored.address.toLowerCase() !== expectedAddress.toLowerCase()) throw new Error("TEA passkey account changed.");
     const session = createSecp256k1SigningSession({ privateKey });
     try {
-      return toViemAccount(session).signTypedData(typedData);
+      return await toViemAccount(session).signTypedData(typedData);
     } finally {
       session.end();
     }
