@@ -38,7 +38,7 @@ cast send 0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9 \
   --rpc-url "$MONAD_RPC_URL" --private-key "$OWNER_PRIVATE_KEY"
 ```
 
-Then add the address to the backend `SETTLEMENT_TOKENS` list and the Envio `SettlementToken` addresses. The frontend obtains token symbols, decimals, and balances from the backend.
+Then add the address to the backend `SETTLEMENT_TOKENS` list. The frontend obtains token symbols, decimals, and balances from the backend.
 
 ## Contract behavior
 

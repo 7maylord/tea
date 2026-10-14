@@ -35,9 +35,9 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 | TeaClaimEscrow | [`0x2cb5…86fA`](https://testnet.monadvision.com/address/0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA) | [Exact match](https://sourcify-api-monad.blockvision.org/v2/contract/10143/0x2cb551cBA355339F3C6b43F931bBFDE60e6986fA) |
 | TeaDateUnlock | [`0x73A8…A9b9`](https://testnet.monadvision.com/address/0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9) | [Exact match](https://sourcify-api-monad.blockvision.org/v2/contract/10143/0x73A834d8de5fe088Cb183132358cd98E5fC3A9b9) |
 
-Chain ID: `10143`. The multi-token deployment starts at block `70763435`; Envio indexes TUSD and AUSD transfers plus TEA lifecycle events from that block.
+Chain ID: `10143`. The multi-token deployment starts at block `70763435`.
 
-The deployment owner can add a future ERC-20 without redeploying by calling `setTokenSupported(token, true)` on TeaStream, TeaClaimEscrow, and TeaDateUnlock, then adding the address to `SETTLEMENT_TOKENS` and the indexer configuration. Removing support blocks new deposits but does not prevent existing obligations from settling. See [`contracts/README.md`](contracts/README.md) for exact commands.
+The deployment owner can add a future ERC-20 without redeploying by calling `setTokenSupported(token, true)` on TeaStream, TeaClaimEscrow, and TeaDateUnlock, then adding the address to `SETTLEMENT_TOKENS`. Removing support blocks new deposits but does not prevent existing obligations from settling. See [`contracts/README.md`](contracts/README.md) for exact commands.
 
 ## Repo layout
 
@@ -46,7 +46,6 @@ tea/
   frontend/       # Next.js App Router PWA
   backend/        # NestJS API, Prisma, workers, payment orchestration
   contracts/      # Foundry contracts, deployment scripts, ABI exports
-  indexer/        # Optional Envio HyperIndex bounty deployment
   infrastructure/ # Docker compose templates
   docs/           # deployment notes, integrations, implementation history
 ```
@@ -60,7 +59,7 @@ tea/
 | Chain client | viem 2.56.7 with JSON ABI imports |
 | Contracts | Solidity, Foundry, OpenZeppelin |
 | Identity/wallet | Privy email auth + Mera passkey-derived payment account |
-| Indexing | Backend verifies submitted transactions through Monad RPC; optional Envio indexer is deployable for the Metropolis bounty |
+| Transaction verification | Backend verifies submitted transactions through Monad RPC |
 | Email | Resend, delivered by the backend claim worker |
 | Package management | pnpm, separate lockfiles per app |
 
@@ -187,17 +186,6 @@ Money-changing endpoints require authentication, `Idempotency-Key`, and backend 
 
 Email payments are deposited into `TeaClaimEscrow`. The backend sends the recipient a private claim link after deposit confirmation; the recipient signs in with that same email and uses their TEA passkey to collect the funds. The production backend starts the claim worker automatically, so a separate worker service is not required.
 
-## Optional Envio bounty indexer
-
-The app does not require an Envio API URL. The backend verifies submitted transaction receipts directly against Monad RPC before confirming activity. The `indexer/` folder is a standalone Envio HyperIndex deployment for public analytics and the Metropolis bounty. Envio development-plan indexers may be deprecated after 30 days, so redeploy an older instance before judging.
-
-```sh
-cd indexer
-pnpm install
-pnpm codegen
-pnpm check
-```
-
 ## Hackathon sponsor fit
 
-The Metropolis sponsor list includes Envio, Agora, Dynamic, Privy, Mercuryo, Kuru, Chainlink, Perpl, Nansen, MetaMask, Aurora Intents, Alchemy and others. TEA uses Mera as the canonical passkey-derived payment account while Privy handles email login. Aurora Intents adds wallet top-ups into MON, USDC or AUSD on Monad. TEA no longer depends on Envio at runtime because the hosted API URL requires a paid plan for app consumption, but the indexer can still be deployed as a bounty artifact.
+TEA uses Mera as the canonical passkey-derived payment account while Privy handles email login. Aurora Intents adds wallet top-ups into MON, USDC or AUSD on Monad.
