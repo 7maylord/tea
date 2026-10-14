@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2048" height="2048" viewBox="0 0 2048 2048" role="img" aria-labelledby="title description">
+  <title id="title">TEA logo</title>
+  <description id="description">Lowercase tea wordmark with an eight-point spark.</description>
+  <rect width="2048" height="2048" fill="#163c2c" />
+  <text x="176" y="1285" fill="#dfff80" font-family="Georgia, 'Times New Roman', serif" font-size="900" font-weight="700" letter-spacing="-72">tea</text>
+  <g fill="none" stroke="#dfff80" stroke-width="36" stroke-linecap="square">
+    <path d="M1610 490v360" />
+    <path d="M1430 670h360" />
+    <path d="M1483 543l254 254" />
+    <path d="M1737 543l-254 254" />
+  </g>
+</svg>
