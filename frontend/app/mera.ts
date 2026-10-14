@@ -5,10 +5,17 @@ import { createPasskeyWithPrfOutput, createSecp256k1SigningSession, getEvmAddres
 import { toViemAccount } from "@category-labs/mera/viem";
 import { createPublicClient, createWalletClient, defineChain, http, type Chain, type Hex, type TransactionReceipt } from "viem";
 import { submitTransactionSequence } from "./transaction-sequence";
+import { deriveMeraVaultKey } from "./mera-vault-crypto";
 
 export type StoredMeraWallet = {
   credential: PasskeyCredentialMetadata;
   address: `0x${string}`;
+};
+
+type StoredMeraVault = {
+  version: 1;
+  iv: string;
+  ciphertext: string;
 };
 
 type MeraAccount = StoredMeraWallet & {
@@ -55,6 +62,22 @@ function derivePrivateKey(prfOutput: Uint8Array) {
   return privateKey;
 }
 
+function vaultStorageKey(ownerId: string) {
+  return `tea:mera-vault:${ownerId}`;
+}
+
+function vaultContext(ownerId: string) {
+  return new TextEncoder().encode(`tea:private-payment-vault:v1:${ownerId}`);
+}
+
+function encodeBase64(bytes: Uint8Array) {
+  return btoa(String.fromCharCode(...bytes));
+}
+
+function decodeBase64(value: string) {
+  return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
 function chainFor(chainId: number): Chain {
   return defineChain({
     id: chainId,
@@ -64,16 +87,65 @@ function chainFor(chainId: number): Chain {
   });
 }
 
-async function withMeraSession<T>(ownerId: string, run: (privateKey: Uint8Array, wallet: StoredMeraWallet) => Promise<T>) {
+async function withMeraPrf<T>(ownerId: string, run: (prfOutput: Uint8Array, wallet: StoredMeraWallet) => Promise<T>) {
   const stored = readMeraWallet(ownerId);
   if (!stored) throw new Error("Create your TEA passkey account first.");
   const { prfOutput } = await getPasskeyPrfOutput({ rpId: location.hostname, credential: stored.credential });
-  const privateKey = derivePrivateKey(prfOutput);
   try {
-    return await run(privateKey, stored);
+    return await run(prfOutput, stored);
   } finally {
-    privateKey.fill(0);
+    prfOutput.fill(0);
   }
+}
+
+async function withMeraSession<T>(ownerId: string, run: (privateKey: Uint8Array, wallet: StoredMeraWallet) => Promise<T>) {
+  return withMeraPrf(ownerId, async (prfOutput, stored) => {
+    const privateKey = derivePrivateKey(prfOutput);
+    try {
+      return await run(privateKey, stored);
+    } finally {
+      privateKey.fill(0);
+    }
+  });
+}
+
+export function hasMeraVault(ownerId: string) {
+  return typeof localStorage !== "undefined" && localStorage.getItem(vaultStorageKey(ownerId)) !== null;
+}
+
+export async function unlockMeraVault(ownerId: string) {
+  return withMeraPrf(ownerId, async (prfOutput) => {
+    const key = await deriveMeraVaultKey(prfOutput);
+    const raw = localStorage.getItem(vaultStorageKey(ownerId));
+    if (!raw) return { key, note: "" };
+    try {
+      const stored = JSON.parse(raw) as StoredMeraVault;
+      if (stored.version !== 1 || typeof stored.iv !== "string" || typeof stored.ciphertext !== "string") throw new Error();
+      const plaintext = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: decodeBase64(stored.iv), additionalData: vaultContext(ownerId) },
+        key,
+        decodeBase64(stored.ciphertext),
+      );
+      return { key, note: new TextDecoder().decode(plaintext) };
+    } catch {
+      throw new Error("This passkey cannot open the private vault.");
+    }
+  });
+}
+
+export async function saveMeraVault(ownerId: string, key: CryptoKey, note: string) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: vaultContext(ownerId) },
+    key,
+    new TextEncoder().encode(note),
+  );
+  const stored: StoredMeraVault = {
+    version: 1,
+    iv: encodeBase64(iv),
+    ciphertext: encodeBase64(new Uint8Array(ciphertext)),
+  };
+  localStorage.setItem(vaultStorageKey(ownerId), JSON.stringify(stored));
 }
 
 export async function ensureMeraAccount({ ownerId, did, chainId, email, handle }: { ownerId: string; did: string; chainId: number; email?: string; handle?: string | null }): Promise<MeraAccount> {

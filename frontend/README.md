@@ -31,6 +31,8 @@ The wallet card loads every token returned by `/v1/balances` and lets the user c
 
 The backend prepares calldata but never signs for the user. Before opening Mera, the frontend validates the destination contract, chain, token, recipient, amount, and relevant timing fields against the user's intended action. Submitted transaction recovery data is kept separately per user and token in session storage.
 
+The same Mera passkey can unlock a second, domain-separated AES-GCM key for the private payment vault. The encryption key is non-exportable and never signs blockchain transactions; only the encrypted note, IV, and version are stored locally.
+
 Aurora Intents provides top-up routes into USDC, AUSD, or MON on Monad. It is separate from TEA's settlement-token selector: received AUSD can be used directly in TEA, while other received assets must be supported by the backend and all three TEA contracts before appearing as settlement options.
 
 ## Checks

@@ -14,6 +14,7 @@ Built for **Monad Metropolis (Consumer Products & Payments)**.
 ## Features
 
 - **Email onboarding** — Privy email OTP, Mera passkey payment account, and immutable handle.
+- **One passkey, many keys** — the Mera PRF also derives a separate, non-exportable encryption key for a private payment vault; that key never signs blockchain transactions.
 - **Direct send** — ERC-20 transfer to another TEA user with backend intent tracking and receipt verification.
 - **Send by email** — `TeaClaimEscrow` holds funds for an invited email recipient; unclaimed funds can be refunded after expiry.
 - **Streams** — `TeaStream` funds a fixed-duration stream up front; recipients collect accrued funds and senders can cancel the unaccrued remainder.
