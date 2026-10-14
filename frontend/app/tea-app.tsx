@@ -317,7 +317,10 @@ export default function TeaApp({ apiOrigin }: { apiOrigin: string }) {
                 <p className="mt-1 break-all font-mono text-sm text-stone-800">{address}</p>
                 <p className="mt-3 text-xs text-stone-500">Network ID {session.account.chainId}</p>
               </div>
-              <MeraWallet ownerId={session.id} did={did!} chainId={session.account.chainId} handle={session.handle} email={user?.email?.address} />
+              <MeraWallet apiOrigin={apiOrigin} ownerId={session.id} did={did!} chainId={session.account.chainId} accountAddress={session.account.address} handle={session.handle} email={user?.email?.address} onAccountChanged={(address) => {
+                setActive((current) => current && current.did === did ? { ...current, session: { ...current.session, account: { ...current.session.account, address } } } : current);
+                setBalanceVersion((value) => value + 1);
+              }} />
               <button type="button" disabled={busy} onClick={() => void signOut()} className="mt-5 min-h-12 rounded-2xl border border-stone-300 px-5 font-medium text-stone-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900 disabled:opacity-50">Sign out</button>
             </>}
           </>

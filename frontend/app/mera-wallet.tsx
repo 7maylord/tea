@@ -2,23 +2,34 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { authHeaders } from "./auth";
 import { ensureMeraAccount, hasMeraVault, meraErrorMessage, readMeraWallet, saveMeraVault, unlockMeraVault, type StoredMeraWallet } from "./mera";
 
-export default function MeraWallet({ ownerId, did, chainId, handle, email }: { ownerId: string; did: string; chainId: number; handle: string; email?: string }) {
+export default function MeraWallet({ apiOrigin, ownerId, did, chainId, accountAddress, handle, email, onAccountChanged }: { apiOrigin: string; ownerId: string; did: string; chainId: number; accountAddress: string; handle: string; email?: string; onAccountChanged: (address: string) => void }) {
   const [wallet, setWallet] = useState<StoredMeraWallet | null>(() => readMeraWallet(ownerId));
   const [busy, setBusy] = useState<"recover" | "copy" | "unlock" | "save" | null>(null);
   const [vaultKey, setVaultKey] = useState<CryptoKey | null>(null);
   const [vaultNote, setVaultNote] = useState("");
   const [vaultSaved, setVaultSaved] = useState(() => hasMeraVault(ownerId));
   const supported = typeof window !== "undefined" && window.isSecureContext && "PublicKeyCredential" in window;
+  const mismatch = wallet !== null && wallet.address.toLowerCase() !== accountAddress.toLowerCase();
 
   async function recover() {
     setBusy("recover");
     toast.loading(wallet ? "Checking your passkey…" : "Creating your passkey account…", { id: "mera-wallet" });
     try {
       const account = await ensureMeraAccount({ ownerId, did, chainId, handle, email });
+      const response = await fetch(`${apiOrigin}/v1/session/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...await authHeaders() },
+        body: JSON.stringify({ accountAddress: account.address, signature: account.signature }),
+      });
+      if (!response.ok) throw new Error("Could not connect this passkey account. Try again.");
+      const session = await response.json() as { account?: { address?: string } };
+      if (session.account?.address?.toLowerCase() !== account.address.toLowerCase()) throw new Error("Could not connect this passkey account. Try again.");
       setWallet({ credential: account.credential, address: account.address });
-      toast.success(wallet ? "Passkey verified." : "Passkey account created.", { id: "mera-wallet" });
+      onAccountChanged(account.address);
+      toast.success(mismatch ? "Passkey account reconnected." : wallet ? "Passkey verified." : "Passkey account created.", { id: "mera-wallet" });
     } catch (cause) {
       toast.error(meraErrorMessage(cause), { id: "mera-wallet" });
     } finally {
@@ -78,8 +89,9 @@ export default function MeraWallet({ ownerId, did, chainId, handle, email }: { o
       <p className="text-sm text-stone-500">TEA passkey account</p>
       <p className="mt-2 text-sm leading-6 text-stone-600">Your email gets you in. Your passkey protects every payment.</p>
       {wallet && <p className="mt-4 break-all font-mono text-sm text-stone-800">{wallet.address}</p>}
+      {mismatch && <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-900">This browser’s passkey account differs from your TEA settlement wallet. Reconnect it before signing. Funds at the previous address will not move automatically.</p>}
       {!supported && <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">Mera needs HTTPS or localhost with passkey support.</p>}
-      <button type="button" disabled={!supported || busy !== null} onClick={() => void recover()} className="mt-4 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">{busy === "recover" ? "Checking passkey…" : wallet ? "Check passkey" : "Create TEA passkey account"}</button>
+      <button type="button" disabled={!supported || busy !== null} onClick={() => void recover()} className="mt-4 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">{busy === "recover" ? "Checking passkey…" : mismatch ? "Reconnect this passkey account" : wallet ? "Check passkey" : "Create and connect passkey account"}</button>
       {wallet && <button type="button" disabled={busy !== null} onClick={() => void copy()} className="mt-2 min-h-11 w-full rounded-xl border border-stone-300 px-3 text-sm font-semibold text-stone-900 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-stone-900">{busy === "copy" ? "Copied" : "Copy address"}</button>}
       {wallet && <div className="mt-5 border-t border-stone-200 pt-5">
         <p className="text-sm font-semibold text-stone-900">Private payment vault</p>

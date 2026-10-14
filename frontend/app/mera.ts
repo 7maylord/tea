@@ -1,16 +1,14 @@
 import { HDKey } from "@scure/bip32";
 import { entropyToMnemonic, mnemonicToSeedSync } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english.js";
-import { createPasskeyWithPrfOutput, createSecp256k1SigningSession, getEvmAddress, getPasskeyPrfOutput, type PasskeyCredentialMetadata } from "@category-labs/mera";
+import { createPasskeyWithPrfOutput, createSecp256k1SigningSession, getEvmAddress, getPasskeyPrfOutput } from "@category-labs/mera";
 import { toViemAccount } from "@category-labs/mera/viem";
 import { createPublicClient, createWalletClient, defineChain, http, type Chain, type Hex, type TransactionReceipt } from "viem";
 import { submitTransactionSequence } from "./transaction-sequence";
 import { deriveMeraVaultKey } from "./mera-vault-crypto";
-
-export type StoredMeraWallet = {
-  credential: PasskeyCredentialMetadata;
-  address: `0x${string}`;
-};
+import { readMeraWallet, saveMeraWallet, type StoredMeraWallet } from "./mera-storage";
+export { copyMeraWallet, meraKey, readMeraWallet } from "./mera-storage";
+export type { StoredMeraWallet } from "./mera-storage";
 
 type StoredMeraVault = {
   version: 1;
@@ -27,29 +25,6 @@ type Transaction = { to: Hex; data: Hex; value: bigint; chainId: number };
 
 const path = "m/44'/60'/0'/0/0";
 const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || "https://testnet-rpc.monad.xyz";
-
-export function meraKey(ownerId: string) {
-  return `tea:mera:${ownerId}`;
-}
-
-export function readMeraWallet(ownerId: string) {
-  if (typeof localStorage === "undefined") return null;
-  try {
-    const parsed = JSON.parse(localStorage.getItem(meraKey(ownerId)) ?? "null") as StoredMeraWallet | null;
-    return parsed?.credential?.credentialId && parsed.address ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveMeraWallet(ownerId: string, wallet: StoredMeraWallet) {
-  localStorage.setItem(meraKey(ownerId), JSON.stringify(wallet));
-}
-
-export function copyMeraWallet(fromOwnerId: string, toOwnerId: string) {
-  const wallet = readMeraWallet(fromOwnerId);
-  if (wallet) saveMeraWallet(toOwnerId, wallet);
-}
 
 export function meraSettlementMessage(did: string, address: string, chainId: number) {
   return `TEA Mera settlement account\nPrivy DID: ${did}\nAddress: ${address.toLowerCase()}\nChain ID: ${chainId}`;
@@ -252,5 +227,6 @@ export function meraErrorMessage(error: unknown) {
   if (code === "PRF_UNAVAILABLE") return "This passkey provider does not support Mera. Try iCloud Keychain, 1Password, or Google Password Manager.";
   if (code === "PASSKEY_OPERATION_FAILED") return "The passkey prompt was cancelled or failed. Try again.";
   if (code === "CRYPTO_UNAVAILABLE") return "Mera needs HTTPS or localhost.";
+  if (error instanceof Error && error.message === "TEA passkey account changed.") return "This browser has a different TEA passkey account. Open Profile and reconnect it.";
   return error instanceof Error ? error.message : "Mera setup failed.";
 }
